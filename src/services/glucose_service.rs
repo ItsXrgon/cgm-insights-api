@@ -19,6 +19,7 @@ fn to_response(reading: GlucoseReading) -> GlucoseReadingResponse {
 /// Create a new glucose reading
 pub async fn create_reading(
     pool: &Pool<Postgres>,
+    user_id: i32,
     request: CreateGlucoseReadingRequest,
 ) -> Result<GlucoseReadingResponse, AppError> {
     // Validation
@@ -29,33 +30,40 @@ pub async fn create_reading(
     }
 
     let new_reading = NewGlucoseReading {
+        user_id: Some(user_id),
         value_mg_dl: request.value_mg_dl,
         timestamp: request.timestamp,
         device_id: request.device_id,
         notes: request.notes,
     };
 
-    let reading = glucose_repository::insert(pool, new_reading).await?;
+    let reading = glucose_repository::insert(pool, new_reading)
+        .await?
+        .ok_or_else(|| {
+            AppError::ConfigError("Reading with this timestamp already exists".to_string())
+        })?;
 
     Ok(to_response(reading))
 }
 
-/// Get all glucose readings
+/// Get all glucose readings for a user
 pub async fn get_readings(
     pool: &Pool<Postgres>,
+    user_id: i32,
     limit: Option<i64>,
 ) -> Result<Vec<GlucoseReadingResponse>, AppError> {
-    let readings = glucose_repository::find_all(pool, limit).await?;
+    let readings = glucose_repository::find_all(pool, user_id, limit).await?;
 
     Ok(readings.into_iter().map(to_response).collect())
 }
 
-/// Get glucose reading by ID
+/// Get glucose reading by ID and user_id
 pub async fn get_reading_by_id(
     pool: &Pool<Postgres>,
+    user_id: i32,
     id: i32,
 ) -> Result<GlucoseReadingResponse, AppError> {
-    let reading = glucose_repository::find_by_id(pool, id)
+    let reading = glucose_repository::find_by_id(pool, user_id, id)
         .await?
         .ok_or_else(|| AppError::ConfigError("Reading not found".to_string()))?;
 
@@ -63,6 +71,10 @@ pub async fn get_reading_by_id(
 }
 
 /// Delete a glucose reading
-pub async fn delete_reading(pool: &Pool<Postgres>, id: i32) -> Result<bool, AppError> {
-    glucose_repository::delete(pool, id).await
+pub async fn delete_reading(
+    pool: &Pool<Postgres>,
+    user_id: i32,
+    id: i32,
+) -> Result<bool, AppError> {
+    glucose_repository::delete(pool, user_id, id).await
 }

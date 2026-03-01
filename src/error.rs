@@ -1,7 +1,7 @@
 use axum::{
-    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
+    Json,
 };
 use serde_json::json;
 
@@ -40,12 +40,21 @@ impl From<reqwest::Error> for AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, error_message) = match self {
-            AppError::AuthError(msg) => (StatusCode::UNAUTHORIZED, msg),
-            AppError::ApiError(msg) => (StatusCode::BAD_GATEWAY, msg),
-            AppError::DatabaseError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            AppError::ConfigError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
-            AppError::InternalError(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
+        let (status, error_message) = match &self {
+            AppError::AuthError(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
+            AppError::ApiError(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
+            AppError::DatabaseError(msg) => {
+                tracing::error!(error = ?self, "Database error occurred");
+                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
+            }
+            AppError::ConfigError(msg) => {
+                tracing::error!(error = ?self, "Configuration error occurred");
+                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
+            }
+            AppError::InternalError(err) => {
+                tracing::error!(error = ?err, "Internal error occurred");
+                (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+            }
         };
 
         let body = Json(json!({

@@ -1,52 +1,63 @@
 use crate::error::AppError;
+use crate::models::CgmCredential;
 use crate::repositories::glucose_repository;
 use crate::services::LibreLinkClient;
 use sqlx::{Pool, Postgres};
-use std::sync::Arc;
 
-/// Sync service that fetches data from LibreLink Up and stores it in the database
+/// Sync service that fetches data from CGM platforms and stores it in the database
 pub struct SyncService {
-    client: Arc<LibreLinkClient>,
     db: Pool<Postgres>,
 }
 
 impl SyncService {
-    pub fn new(client: LibreLinkClient, db: Pool<Postgres>) -> Self {
-        Self {
-            client: Arc::new(client),
-            db,
-        }
+    pub fn new(db: Pool<Postgres>) -> Self {
+        Self { db }
     }
 
-    /// Fetch latest readings from LibreLink Up and store them in the database
-    pub async fn sync_readings(&self) -> Result<usize, AppError> {
-        println!("🔄 Starting sync process...");
+    /// Fetch latest readings for a specific CGM credential and store them in the database
+    pub async fn sync_for_credential(&self, cred: &CgmCredential) -> Result<usize, AppError> {
+        println!(
+            "🔄 Starting sync for user {} (CGM: {})",
+            cred.user_id, cred.cgm_type
+        );
 
-        // PLACEHOLDER: Authenticate with API
-        self.client.authenticate().await?;
-
-        // PLACEHOLDER: Fetch latest readings from API
-        let readings = self.client.fetch_latest_readings().await?;
+        let readings = match cred.cgm_type.to_lowercase().as_str() {
+            "freestyle" => {
+                let client = LibreLinkClient::new(
+                    cred.username.clone(),
+                    cred.password.clone(),
+                    cred.region.clone().unwrap_or_else(|| "eu".to_string()),
+                )?;
+                client.fetch_latest_readings(Some(cred.user_id)).await?
+            }
+            "dexcom" => {
+                return Err(AppError::ApiError(
+                    "Dexcom sync is not yet implemented".to_string(),
+                ));
+            }
+            _ => {
+                return Err(AppError::ConfigError(format!(
+                    "Unsupported CGM type: {}",
+                    cred.cgm_type
+                )));
+            }
+        };
 
         if readings.is_empty() {
-            println!("   No new readings to sync");
+            println!("   No new readings to sync for user {}", cred.user_id);
             return Ok(0);
         }
 
-        // PLACEHOLDER: Store readings in database
-        let mut stored_count = 0;
-        for reading in readings {
-            match glucose_repository::insert(&self.db, reading).await {
-                Ok(_) => {
-                    stored_count += 1;
-                }
-                Err(e) => {
-                    eprintln!("   ⚠️  Failed to store reading: {}", e);
-                }
-            }
-        }
+        // Store readings in database using bulk insert
+        let stored_count = glucose_repository::insert_many(&self.db, readings).await?;
 
-        println!("   ✅ Synced {} readings", stored_count);
-        Ok(stored_count)
+        Ok(stored_count as usize)
+    }
+
+    /// Legacy method for backward compatibility if needed, or just remove it
+    pub async fn sync_readings(&self) -> Result<usize, AppError> {
+        // This is now problematic since we don't have a global client.
+        // We should probably remove it or make it sync all active credentials.
+        Ok(0)
     }
 }

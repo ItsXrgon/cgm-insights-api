@@ -1,6 +1,18 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
+/// Signup request payload
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignupRequest {
+    pub username: String,
+    pub password: String,
+    pub cgm_username: String,
+    pub cgm_password: String,
+    pub cgm_type: String, // "FreeStyle" or "Dexcom"
+    pub cgm_region: Option<String>,
+}
+
 /// Login request payload
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,6 +30,28 @@ pub struct CreateGlucoseReadingRequest {
     pub timestamp: DateTime<Utc>,
     pub device_id: Option<String>,
     pub notes: Option<String>,
+}
+
+/// Update CGM credentials request
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCgmCredentialRequest {
+    pub cgm_type: Option<String>,
+    pub cgm_username: Option<String>,
+    pub cgm_password: Option<String>,
+    pub cgm_region: Option<String>,
+    pub is_active: Option<bool>,
+}
+
+/// Create CGM credential request
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCgmCredentialRequest {
+    pub cgm_type: String,
+    pub cgm_username: String,
+    pub cgm_password: String,
+    pub cgm_region: Option<String>,
+    pub is_active: bool,
 }
 
 /// Query parameters for glucose readings

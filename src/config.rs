@@ -1,21 +1,26 @@
-use dotenvy::dotenv;
 use std::env;
 
 pub struct Config {
     pub database_url: String,
-    pub cgm_username: String,
-    pub cgm_password: String,
-    pub cgm_region: String,
+    pub sentry_dsn: Option<String>,
+    pub environment: String,
 }
 
 impl Config {
     pub fn from_env() -> Self {
-        dotenv().ok(); 
+        // Get APP_ENV first to know which file to load
+        let app_env = env::var("APP_ENV").unwrap_or_else(|_| "development".to_string());
+
+        // Load the environment-specific file if it exists, otherwise fall back to .env
+        let env_file = format!(".env.{}", app_env);
+        if dotenvy::from_filename(&env_file).is_err() {
+            dotenvy::dotenv().ok();
+        }
+
         Self {
             database_url: env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
-            cgm_username: env::var("CGM_USERNAME").expect("CGM_USERNAME must be set"),
-            cgm_password: env::var("CGM_PASSWORD").expect("CGM_PASSWORD must be set"),
-            cgm_region: env::var("CGM_REGION").unwrap_or_else(|_| "eu".to_string()),
+            sentry_dsn: env::var("SENTRY_DSN").ok(),
+            environment: app_env,
         }
     }
 }

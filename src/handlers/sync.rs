@@ -1,26 +1,35 @@
 use crate::error::AppError;
+use crate::repositories::cgm_repository;
 use crate::server::AppState;
-use axum::{extract::State, http::StatusCode, routing::post, Json, Router};
+use crate::services::auth_service::Claims;
+use axum::{extract::State, http::StatusCode, routing::post, Extension, Json, Router};
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/sync", post(trigger_sync))
 }
 
-/// POST /sync - Manually trigger a sync with LibreLink Up API
+/// POST /sync - Manually trigger a sync for the active CGM credential
 async fn trigger_sync(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    println!("🔄 Manual sync triggered via API...");
+    println!("🔄 Manual sync triggered for user {}...", claims.sub);
 
-    // PLACEHOLDER: In production, this would call the sync service
-    // For now, just return a success message
+    // Find active credential for the user
+    let creds = cgm_repository::find_by_user_id(&state.db, claims.sub).await?;
+    let active_cred = creds.into_iter().find(|c| c.is_active).ok_or_else(|| {
+        AppError::ConfigError("No active CGM credential found. Please add one first.".to_string())
+    })?;
+
+    let count = state.sync_service.sync_for_credential(&active_cred).await?;
 
     Ok((
         StatusCode::OK,
         Json(serde_json::json!({
             "success": true,
-            "message": "Sync triggered (placeholder - will fetch from LibreLink Up API)",
-            "note": "Background scheduler runs every 1 hour automatically"
+            "message": format!("Successfully synced {} readings for {}", count, active_cred.cgm_type),
+            "readings_synced": count,
+            "note": "Background scheduler runs every 5 minutes automatically"
         })),
     ))
 }

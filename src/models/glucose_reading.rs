@@ -5,6 +5,7 @@ use sqlx::FromRow;
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct GlucoseReading {
     pub id: i32,
+    pub user_id: Option<i32>,
     pub value_mg_dl: f64,
     pub timestamp: DateTime<Utc>,
     pub device_id: Option<String>,
@@ -14,6 +15,7 @@ pub struct GlucoseReading {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewGlucoseReading {
+    pub user_id: Option<i32>,
     pub value_mg_dl: f64,
     pub timestamp: DateTime<Utc>,
     pub device_id: Option<String>,

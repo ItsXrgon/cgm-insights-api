@@ -2,7 +2,7 @@ use crate::{dto::ApiInfoResponse, server::AppState};
 use axum::{routing::get, Json, Router};
 
 pub fn routes() -> Router<AppState> {
-    Router::new().route("/api", get(api_info))
+    Router::new().route("/", get(api_info))
 }
 
 async fn api_info() -> Json<ApiInfoResponse> {

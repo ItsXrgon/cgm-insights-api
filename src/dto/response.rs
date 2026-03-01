@@ -28,6 +28,37 @@ pub struct GlucoseReadingResponse {
     pub created_at: String,
 }
 
+/// Auth response with token
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthResponse {
+    pub token: String,
+    pub user: UserResponse,
+}
+
+/// User response (no password)
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserResponse {
+    pub id: i32,
+    pub username: String,
+    pub created_at: String,
+}
+
+/// CGM Credential response
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CgmCredentialResponse {
+    pub id: i32,
+    pub user_id: i32,
+    pub cgm_type: String,
+    pub username: String,
+    pub region: Option<String>,
+    pub is_active: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 /// Generic error response
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {

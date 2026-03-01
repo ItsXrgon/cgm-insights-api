@@ -20,12 +20,15 @@ impl LibreLinkClient {
     }
 
     /// Fetch latest glucose readings from LibreLink Up via the crate.
-    pub async fn fetch_latest_readings(&self) -> Result<Vec<NewGlucoseReading>, AppError> {
+    pub async fn fetch_latest_readings(
+        &self,
+        user_id: Option<i32>,
+    ) -> Result<Vec<NewGlucoseReading>, AppError> {
         let data = self.inner.read().await.map_err(libre_error_to_app)?;
         let mut readings = Vec::new();
-        readings.push(libre_cgm_to_reading(&data.current, None));
+        readings.push(libre_cgm_to_reading(&data.current, None, user_id));
         for item in &data.history {
-            readings.push(libre_cgm_to_reading(item, None));
+            readings.push(libre_cgm_to_reading(item, None, user_id));
         }
         Ok(readings)
     }
@@ -36,8 +39,13 @@ impl LibreLinkClient {
     }
 }
 
-fn libre_cgm_to_reading(d: &LibreCgmData, device_id: Option<String>) -> NewGlucoseReading {
+fn libre_cgm_to_reading(
+    d: &LibreCgmData,
+    device_id: Option<String>,
+    user_id: Option<i32>,
+) -> NewGlucoseReading {
     NewGlucoseReading {
+        user_id,
         value_mg_dl: d.value,
         timestamp: d.date,
         device_id,
