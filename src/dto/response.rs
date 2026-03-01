@@ -1,14 +1,15 @@
 use serde::Serialize;
+use utoipa::ToSchema;
 
 /// Health check response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct HealthResponse {
     pub status: &'static str,
     pub timestamp: i64,
 }
 
 /// API information response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ApiInfoResponse {
     pub name: &'static str,
     pub version: &'static str,
@@ -17,7 +18,7 @@ pub struct ApiInfoResponse {
 }
 
 /// Glucose reading response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GlucoseReadingResponse {
     pub id: i32,
@@ -29,7 +30,7 @@ pub struct GlucoseReadingResponse {
 }
 
 /// Auth response with token
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthResponse {
     pub token: String,
@@ -37,7 +38,7 @@ pub struct AuthResponse {
 }
 
 /// User response (no password)
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserResponse {
     pub id: i32,
@@ -46,7 +47,7 @@ pub struct UserResponse {
 }
 
 /// CGM Credential response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CgmCredentialResponse {
     pub id: i32,
@@ -59,8 +60,24 @@ pub struct CgmCredentialResponse {
     pub updated_at: String,
 }
 
+/// Wrapper for API responses that return `{ success, data }` with auth data
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthDataResponse {
+    pub success: bool,
+    pub data: AuthResponse,
+}
+
+/// Wrapper for API responses that return `{ success, message }`
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiMessageResponse {
+    pub success: bool,
+    pub message: String,
+}
+
 /// Generic error response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ErrorResponse {
     pub error: String,
     pub message: Option<String>,

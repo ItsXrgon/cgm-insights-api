@@ -67,9 +67,10 @@ fn main() -> anyhow::Result<()> {
             let app: axum::Router = create_app(pool, sync_service, config.sentry_dsn.is_some());
 
             let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-            println!("🚀 Server running on http://0.0.0.0:3000");
-            println!("📊 Health check: http://0.0.0.0:3000/health");
-            println!("📚 API info: http://0.0.0.0:3000/api");
+            println!("🚀 Server running on http://127.0.0.1:3000/");
+            println!("📊 Health check: http://127.0.0.1:3000/health");
+            println!("📚 API info: http://127.0.0.1:3000/api");
+            println!("📖 Swagger UI: http://127.0.0.1:3000/swagger-ui/");
 
             axum::serve(listener, app).await?;
 

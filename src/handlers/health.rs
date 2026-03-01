@@ -5,7 +5,14 @@ pub fn routes() -> Router<AppState> {
     Router::new().route("/health", get(health_check))
 }
 
-async fn health_check() -> Json<HealthResponse> {
+/// Health check endpoint
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "Health",
+    responses((status = 200, description = "Service is healthy", body = HealthResponse)),
+)]
+pub async fn health_check() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "OK",
         timestamp: chrono::Utc::now().timestamp(),

@@ -1,4 +1,5 @@
 use crate::middleware::{cors_layer, jwt_auth, security_headers_layer};
+use crate::openapi::{swagger_config, ApiDoc};
 use crate::services::SyncService;
 use axum::http::StatusCode;
 use axum::middleware::from_fn;
@@ -15,6 +16,8 @@ use tower_governor::{
 use tower_http::compression::CompressionLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -56,22 +59,29 @@ pub fn create_app(
             Duration::from_secs(30),
         ))
         .layer(CompressionLayer::new())
-        .layer(cors_layer())
-        .layer(GovernorLayer {
-            config: governor_conf,
-        });
+        .layer(cors_layer());
 
     let auth_routes = crate::handlers::auth::routes();
 
+    // Apply rate limiting only to protected API routes (glucose, sync, cgm)
+    // Exclude health, Swagger UI, api-docs, and auth - they load many assets or need to stay unthrottled
     let api_routes = Router::new()
         .merge(crate::handlers::api_info::routes())
         .merge(crate::handlers::glucose::routes())
         .merge(crate::handlers::sync::routes())
         .merge(crate::handlers::cgm::routes())
-        .layer(from_fn(jwt_auth));
+        .layer(from_fn(jwt_auth))
+        .layer(GovernorLayer {
+            config: governor_conf,
+        });
 
     Router::new()
         .merge(crate::handlers::health::routes())
+        .merge(
+            SwaggerUi::new("/swagger-ui")
+                .url("/api-docs/openapi.json", ApiDoc::openapi())
+                .config(swagger_config()),
+        )
         .nest("/api/auth", auth_routes)
         .nest("/api", api_routes)
         .with_state(state)

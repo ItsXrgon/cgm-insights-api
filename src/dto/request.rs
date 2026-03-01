@@ -1,8 +1,9 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use utoipa::ToSchema;
 
 /// Signup request payload
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SignupRequest {
     pub username: String,
@@ -14,7 +15,7 @@ pub struct SignupRequest {
 }
 
 /// Login request payload
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LoginRequest {
     pub username: String,
@@ -22,7 +23,7 @@ pub struct LoginRequest {
 }
 
 /// Create glucose reading request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateGlucoseReadingRequest {
     pub value_mg_dl: f64,
@@ -33,7 +34,7 @@ pub struct CreateGlucoseReadingRequest {
 }
 
 /// Update CGM credentials request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateCgmCredentialRequest {
     pub cgm_type: Option<String>,
@@ -44,7 +45,7 @@ pub struct UpdateCgmCredentialRequest {
 }
 
 /// Create CGM credential request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateCgmCredentialRequest {
     pub cgm_type: String,
@@ -55,7 +56,7 @@ pub struct CreateCgmCredentialRequest {
 }
 
 /// Query parameters for glucose readings
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct GlucoseQueryParams {
     pub start_time: Option<i64>,
     pub end_time: Option<i64>,

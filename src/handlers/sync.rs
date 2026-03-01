@@ -8,8 +8,19 @@ pub fn routes() -> Router<AppState> {
     Router::new().route("/sync", post(trigger_sync))
 }
 
-/// POST /sync - Manually trigger a sync for the active CGM credential
-async fn trigger_sync(
+/// Manually trigger a sync for the active CGM credential
+#[utoipa::path(
+    post,
+    path = "/api/sync",
+    tag = "Sync",
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 200, description = "Sync completed"),
+        (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
+        (status = 500, description = "No active credential or sync failed", body = crate::dto::ErrorResponse),
+    ),
+)]
+pub async fn trigger_sync(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {

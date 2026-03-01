@@ -10,6 +10,7 @@ use axum::{
     Extension, Json, Router,
 };
 use serde::Deserialize;
+use utoipa::{IntoParams, ToSchema};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -19,13 +20,24 @@ pub fn routes() -> Router<AppState> {
         .route("/glucose/{id}", delete(delete_reading))
 }
 
-#[derive(Debug, Deserialize)]
-struct ListQuery {
-    limit: Option<i64>,
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+pub struct ListQuery {
+    pub limit: Option<i64>,
 }
 
-/// POST /glucose - Create a new glucose reading
-async fn create_reading(
+/// Create a new glucose reading
+#[utoipa::path(
+    post,
+    path = "/api/glucose",
+    tag = "Glucose",
+    security(("bearer_auth" = [])),
+    request_body = CreateGlucoseReadingRequest,
+    responses(
+        (status = 201, description = "Reading created"),
+        (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
+    ),
+)]
+pub async fn create_reading(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(request): Json<CreateGlucoseReadingRequest>,
@@ -41,8 +53,19 @@ async fn create_reading(
     ))
 }
 
-/// GET /glucose - Get all glucose readings for the current user
-async fn get_readings(
+/// Get all glucose readings for the current user
+#[utoipa::path(
+    get,
+    path = "/api/glucose",
+    tag = "Glucose",
+    security(("bearer_auth" = [])),
+    params(ListQuery),
+    responses(
+        (status = 200, description = "List of readings"),
+        (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
+    ),
+)]
+pub async fn get_readings(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Query(query): Query<ListQuery>,
@@ -56,8 +79,20 @@ async fn get_readings(
     })))
 }
 
-/// GET /glucose/:id - Get a specific glucose reading
-async fn get_reading(
+/// Get a specific glucose reading by ID
+#[utoipa::path(
+    get,
+    path = "/api/glucose/{id}",
+    tag = "Glucose",
+    security(("bearer_auth" = [])),
+    params(("id" = i32, Path, description = "Reading ID")),
+    responses(
+        (status = 200, description = "Reading found"),
+        (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
+        (status = 404, description = "Not found", body = crate::dto::ErrorResponse),
+    ),
+)]
+pub async fn get_reading(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<i32>,
@@ -70,8 +105,20 @@ async fn get_reading(
     })))
 }
 
-/// DELETE /glucose/:id - Delete a glucose reading
-async fn delete_reading(
+/// Delete a glucose reading
+#[utoipa::path(
+    delete,
+    path = "/api/glucose/{id}",
+    tag = "Glucose",
+    security(("bearer_auth" = [])),
+    params(("id" = i32, Path, description = "Reading ID")),
+    responses(
+        (status = 200, description = "Reading deleted"),
+        (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
+        (status = 404, description = "Not found", body = crate::dto::ErrorResponse),
+    ),
+)]
+pub async fn delete_reading(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<i32>,

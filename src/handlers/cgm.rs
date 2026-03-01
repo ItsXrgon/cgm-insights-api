@@ -18,7 +18,18 @@ pub fn routes() -> Router<AppState> {
         .route("/cgm/{id}", delete(delete_credential))
 }
 
-async fn list_credentials(
+/// List all CGM credentials for the current user
+#[utoipa::path(
+    get,
+    path = "/api/cgm",
+    tag = "CGM",
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 200, description = "List of credentials"),
+        (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
+    ),
+)]
+pub async fn list_credentials(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -30,7 +41,19 @@ async fn list_credentials(
     })))
 }
 
-async fn add_credential(
+/// Add a new CGM credential
+#[utoipa::path(
+    post,
+    path = "/api/cgm",
+    tag = "CGM",
+    security(("bearer_auth" = [])),
+    request_body = CreateCgmCredentialRequest,
+    responses(
+        (status = 201, description = "Credential created"),
+        (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
+    ),
+)]
+pub async fn add_credential(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(request): Json<CreateCgmCredentialRequest>,
@@ -46,7 +69,21 @@ async fn add_credential(
     ))
 }
 
-async fn update_credential(
+/// Update an existing CGM credential
+#[utoipa::path(
+    patch,
+    path = "/api/cgm/{id}",
+    tag = "CGM",
+    security(("bearer_auth" = [])),
+    params(("id" = i32, Path, description = "Credential ID")),
+    request_body = UpdateCgmCredentialRequest,
+    responses(
+        (status = 200, description = "Credential updated"),
+        (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
+        (status = 404, description = "Not found", body = crate::dto::ErrorResponse),
+    ),
+)]
+pub async fn update_credential(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<i32>,
@@ -60,7 +97,20 @@ async fn update_credential(
     })))
 }
 
-async fn set_active(
+/// Set a credential as the active one for syncing
+#[utoipa::path(
+    post,
+    path = "/api/cgm/{id}/active",
+    tag = "CGM",
+    security(("bearer_auth" = [])),
+    params(("id" = i32, Path, description = "Credential ID")),
+    responses(
+        (status = 200, description = "Credential set as active"),
+        (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
+        (status = 404, description = "Not found", body = crate::dto::ErrorResponse),
+    ),
+)]
+pub async fn set_active(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<i32>,
@@ -73,7 +123,20 @@ async fn set_active(
     })))
 }
 
-async fn delete_credential(
+/// Delete a CGM credential
+#[utoipa::path(
+    delete,
+    path = "/api/cgm/{id}",
+    tag = "CGM",
+    security(("bearer_auth" = [])),
+    params(("id" = i32, Path, description = "Credential ID")),
+    responses(
+        (status = 200, description = "Credential deleted"),
+        (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
+        (status = 404, description = "Not found", body = crate::dto::ErrorResponse),
+    ),
+)]
+pub async fn delete_credential(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<i32>,
