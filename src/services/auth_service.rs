@@ -98,7 +98,7 @@ pub async fn signup(
         cgm_type: request.cgm_type,
         username: request.cgm_username,
         password: request.cgm_password,
-        region: request.cgm_region,
+        region: request.cgm_region.map(|r| r.to_lowercase()),
         is_active: true,
     };
     cgm_repository::insert(pool, new_cgm).await?;

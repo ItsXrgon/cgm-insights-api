@@ -1,5 +1,5 @@
 use crate::middleware::{cors_layer, jwt_auth, security_headers_layer};
-use crate::openapi::{swagger_config, ApiDoc};
+use crate::docs::openapi::{swagger_config, ApiDoc};
 use crate::services::SyncService;
 use axum::http::StatusCode;
 use axum::middleware::from_fn;

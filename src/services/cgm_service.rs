@@ -39,7 +39,7 @@ pub async fn add_credential(
         cgm_type: request.cgm_type,
         username: request.cgm_username,
         password: request.cgm_password,
-        region: request.cgm_region,
+        region: request.cgm_region.map(|r| r.to_lowercase()),
         is_active: request.is_active,
     };
 
@@ -74,7 +74,7 @@ pub async fn update_credential(
         request.cgm_type,
         request.cgm_username,
         request.cgm_password,
-        request.cgm_region,
+        request.cgm_region.map(|r| r.to_lowercase()),
         request.is_active,
     )
     .await?;

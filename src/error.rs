@@ -42,16 +42,22 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, error_message) = match &self {
             AppError::AuthError(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
-            AppError::ApiError(msg) => (StatusCode::BAD_GATEWAY, msg.clone()),
+            AppError::ApiError(msg) => {
+                sentry::capture_error(&self);
+                (StatusCode::BAD_GATEWAY, msg.clone())
+            }
             AppError::DatabaseError(msg) => {
+                sentry::capture_error(&self);
                 tracing::error!(error = ?self, "Database error occurred");
                 (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
             }
             AppError::ConfigError(msg) => {
+                sentry::capture_error(&self);
                 tracing::error!(error = ?self, "Configuration error occurred");
                 (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
             }
             AppError::InternalError(err) => {
+                sentry::capture_error(&self);
                 tracing::error!(error = ?err, "Internal error occurred");
                 (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
             }

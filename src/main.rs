@@ -61,8 +61,13 @@ fn main() -> anyhow::Result<()> {
             // Initialize sync service
             let sync_service = Arc::new(services::SyncService::new(pool.clone()));
 
-            // Start background scheduler
-            scheduler::start_sync_scheduler(sync_service.clone(), pool.clone()).await;
+            // Start background scheduler (syncs all active CGM credentials every 5 min by default)
+            scheduler::start_sync_scheduler(
+                sync_service.clone(),
+                pool.clone(),
+                config.sync_interval_secs,
+            )
+            .await;
 
             let app: axum::Router = create_app(pool, sync_service, config.sentry_dsn.is_some());
 

@@ -3,6 +3,7 @@ use crate::models::CgmCredential;
 use crate::repositories::glucose_repository;
 use crate::services::LibreLinkClient;
 use sqlx::{Pool, Postgres};
+use tracing::{info, warn};
 
 /// Sync service that fetches data from CGM platforms and stores it in the database
 pub struct SyncService {
@@ -14,11 +15,13 @@ impl SyncService {
         Self { db }
     }
 
-    /// Fetch latest readings for a specific CGM credential and store them in the database
+    /// Fetch latest readings for a specific CGM credential and store them in the database.
+    /// Returns the number of new readings stored (duplicates by user_id+timestamp are skipped).
     pub async fn sync_for_credential(&self, cred: &CgmCredential) -> Result<usize, AppError> {
-        println!(
-            "🔄 Starting sync for user {} (CGM: {})",
-            cred.user_id, cred.cgm_type
+        info!(
+            user_id = cred.user_id,
+            cgm_type = %cred.cgm_type,
+            "Starting CGM sync"
         );
 
         let readings = match cred.cgm_type.to_lowercase().as_str() {
@@ -44,20 +47,11 @@ impl SyncService {
         };
 
         if readings.is_empty() {
-            println!("   No new readings to sync for user {}", cred.user_id);
+            warn!(user_id = cred.user_id, "No readings returned from CGM");
             return Ok(0);
         }
 
-        // Store readings in database using bulk insert
         let stored_count = glucose_repository::insert_many(&self.db, readings).await?;
-
         Ok(stored_count as usize)
-    }
-
-    /// Legacy method for backward compatibility if needed, or just remove it
-    pub async fn sync_readings(&self) -> Result<usize, AppError> {
-        // This is now problematic since we don't have a global client.
-        // We should probably remove it or make it sync all active credentials.
-        Ok(0)
     }
 }
