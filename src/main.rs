@@ -71,11 +71,11 @@ fn main() -> anyhow::Result<()> {
 
             let app: axum::Router = create_app(pool, sync_service, config.sentry_dsn.is_some());
 
-            let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-            println!("🚀 Server running on http://127.0.0.1:3000/");
-            println!("📊 Health check: http://127.0.0.1:3000/health");
-            println!("📚 API info: http://127.0.0.1:3000/api");
-            println!("📖 Swagger UI: http://127.0.0.1:3000/swagger-ui/");
+            let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.port)).await?;
+            println!("🚀 Server running on http://127.0.0.1:{}/", config.port);
+            println!("📊 Health check: http://127.0.0.1:{}/health", config.port);
+            println!("📚 API info: http://127.0.0.1:{}/api", config.port);
+            println!("📖 Swagger UI: http://127.0.0.1:{}/swagger-ui/", config.port);
 
             axum::serve(listener, app).await?;
 

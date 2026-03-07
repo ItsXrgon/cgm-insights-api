@@ -29,6 +29,11 @@ pub struct CreateGlucoseReadingRequest {
     pub value_mg_dl: f64,
     #[serde(default = "chrono::Utc::now")]
     pub timestamp: DateTime<Utc>,
+    #[serde(default)]
+    pub is_high: bool,
+    #[serde(default)]
+    pub is_low: bool,
+    pub trend: Option<String>,
     pub device_id: Option<String>,
     pub notes: Option<String>,
 }

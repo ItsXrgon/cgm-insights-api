@@ -10,6 +10,9 @@ fn to_response(reading: GlucoseReading) -> GlucoseReadingResponse {
         id: reading.id,
         value_mg_dl: reading.value_mg_dl,
         timestamp: reading.timestamp.to_rfc3339(),
+        is_high: reading.is_high,
+        is_low: reading.is_low,
+        trend: reading.trend,
         device_id: reading.device_id,
         notes: reading.notes,
         created_at: reading.created_at.to_rfc3339(),
@@ -33,16 +36,14 @@ pub async fn create_reading(
         user_id: Some(user_id),
         value_mg_dl: request.value_mg_dl,
         timestamp: request.timestamp,
+        is_high: request.is_high,
+        is_low: request.is_low,
+        trend: request.trend,
         device_id: request.device_id,
         notes: request.notes,
     };
 
-    let reading = glucose_repository::insert(pool, new_reading)
-        .await?
-        .ok_or_else(|| {
-            AppError::ConfigError("Reading with this timestamp already exists".to_string())
-        })?;
-
+    let reading = glucose_repository::insert(pool, new_reading).await?;
     Ok(to_response(reading))
 }
 

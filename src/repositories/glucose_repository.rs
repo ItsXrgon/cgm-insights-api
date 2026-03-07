@@ -8,48 +8,22 @@ pub async fn init_table(pool: &Pool<Postgres>) -> Result<(), AppError> {
         r#"
         CREATE TABLE IF NOT EXISTS glucose_readings (
             id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
             value_mg_dl DOUBLE PRECISION NOT NULL,
             timestamp TIMESTAMPTZ NOT NULL,
+            is_high BOOLEAN NOT NULL DEFAULT FALSE,
+            is_low BOOLEAN NOT NULL DEFAULT FALSE,
+            trend VARCHAR(50),
             device_id VARCHAR(255),
             notes TEXT,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT glucose_readings_user_timestamp_unique UNIQUE (user_id, timestamp)
         )
         "#,
     )
     .execute(pool)
     .await?;
 
-    // Add user_id if it doesn't exist
-    sqlx::query(
-        r#"
-        ALTER TABLE glucose_readings 
-        ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    // Update unique constraint
-    sqlx::query(
-        r#"
-        ALTER TABLE glucose_readings 
-        DROP CONSTRAINT IF EXISTS glucose_readings_timestamp_key
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-        ALTER TABLE glucose_readings 
-        ADD CONSTRAINT glucose_readings_user_timestamp_unique UNIQUE (user_id, timestamp)
-        "#,
-    )
-    .execute(pool)
-    .await
-    .ok(); // Ignore if constraint already exists
-
-    // Create index on timestamp for faster queries
     sqlx::query(
         r#"
         CREATE INDEX IF NOT EXISTS idx_glucose_readings_timestamp 
@@ -62,31 +36,42 @@ pub async fn init_table(pool: &Pool<Postgres>) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Insert a new glucose reading (with upsert/skip on conflict)
+/// Insert a new glucose reading (upsert: on conflict overrides existing row)
 pub async fn insert(
     pool: &Pool<Postgres>,
     reading: NewGlucoseReading,
-) -> Result<Option<GlucoseReading>, AppError> {
+) -> Result<GlucoseReading, AppError> {
     let record = sqlx::query_as::<_, GlucoseReading>(
         r#"
-        INSERT INTO glucose_readings (user_id, value_mg_dl, timestamp, device_id, notes)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (user_id, timestamp) DO NOTHING
-        RETURNING id, user_id, value_mg_dl, timestamp, device_id, notes, created_at
+        INSERT INTO glucose_readings (user_id, value_mg_dl, timestamp, is_high, is_low, trend, device_id, notes)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (user_id, timestamp) DO UPDATE SET
+            value_mg_dl = EXCLUDED.value_mg_dl,
+            is_high = EXCLUDED.is_high,
+            is_low = EXCLUDED.is_low,
+            trend = EXCLUDED.trend,
+            device_id = EXCLUDED.device_id,
+            notes = EXCLUDED.notes
+        RETURNING id, user_id, value_mg_dl, timestamp, is_high, is_low, trend, device_id, notes, created_at
         "#,
     )
     .bind(reading.user_id)
     .bind(reading.value_mg_dl)
     .bind(reading.timestamp)
+    .bind(reading.is_high)
+    .bind(reading.is_low)
+    .bind(reading.trend)
     .bind(reading.device_id)
     .bind(reading.notes)
-    .fetch_optional(pool)
+    .fetch_one(pool)
     .await?;
 
     Ok(record)
 }
 
-/// Insert multiple glucose readings (bulk insert)
+/// Insert multiple glucose readings (bulk upsert: on conflict overrides existing rows).
+/// Deduplicates by (user_id, timestamp) within the batch to avoid PostgreSQL error
+/// "cannot affect row a second time" when the API returns duplicate timestamps.
 pub async fn insert_many(
     pool: &Pool<Postgres>,
     readings: Vec<NewGlucoseReading>,
@@ -95,19 +80,42 @@ pub async fn insert_many(
         return Ok(0);
     }
 
+    // Keep last occurrence per (user_id, timestamp) so we don't conflict within the same INSERT
+    let mut seen = std::collections::HashMap::new();
+    for r in readings {
+        let key = (r.user_id, r.timestamp.timestamp_millis());
+        seen.insert(key, r);
+    }
+    let readings: Vec<NewGlucoseReading> = seen.into_values().collect();
+
+    if readings.is_empty() {
+        return Ok(0);
+    }
+
     let mut query_builder: QueryBuilder<Postgres> = QueryBuilder::new(
-        "INSERT INTO glucose_readings (user_id, value_mg_dl, timestamp, device_id, notes) ",
+        "INSERT INTO glucose_readings (user_id, value_mg_dl, timestamp, is_high, is_low, trend, device_id, notes) ",
     );
 
     query_builder.push_values(readings, |mut b, reading| {
         b.push_bind(reading.user_id)
             .push_bind(reading.value_mg_dl)
             .push_bind(reading.timestamp)
+            .push_bind(reading.is_high)
+            .push_bind(reading.is_low)
+            .push_bind(reading.trend)
             .push_bind(reading.device_id)
             .push_bind(reading.notes);
     });
 
-    query_builder.push(" ON CONFLICT (user_id, timestamp) DO NOTHING");
+    query_builder.push(
+        " ON CONFLICT (user_id, timestamp) DO UPDATE SET \
+         value_mg_dl = EXCLUDED.value_mg_dl, \
+         is_high = EXCLUDED.is_high, \
+         is_low = EXCLUDED.is_low, \
+         trend = EXCLUDED.trend, \
+         device_id = EXCLUDED.device_id, \
+         notes = EXCLUDED.notes",
+    );
 
     let result = query_builder.build().execute(pool).await?;
     Ok(result.rows_affected())
@@ -123,7 +131,7 @@ pub async fn find_all(
 
     let records = sqlx::query_as::<_, GlucoseReading>(
         r#"
-        SELECT id, user_id, value_mg_dl, timestamp, device_id, notes, created_at
+        SELECT id, user_id, value_mg_dl, timestamp, is_high, is_low, trend, device_id, notes, created_at
         FROM glucose_readings
         WHERE user_id = $1
         ORDER BY timestamp DESC
@@ -146,7 +154,7 @@ pub async fn find_by_id(
 ) -> Result<Option<GlucoseReading>, AppError> {
     let record = sqlx::query_as::<_, GlucoseReading>(
         r#"
-        SELECT id, user_id, value_mg_dl, timestamp, device_id, notes, created_at
+        SELECT id, user_id, value_mg_dl, timestamp, is_high, is_low, trend, device_id, notes, created_at
         FROM glucose_readings
         WHERE id = $1 AND user_id = $2
         "#,

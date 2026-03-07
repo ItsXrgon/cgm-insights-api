@@ -6,7 +6,7 @@ use std::time::Duration;
 use tracing::{error, info};
 
 /// Start the background scheduler that syncs CGM data for all active credentials at a fixed interval.
-/// Runs an initial sync immediately, then every `interval_secs` seconds (default 5 minutes).
+/// Runs an initial sync immediately, then every `interval_secs` seconds (default 1h).
 pub async fn start_sync_scheduler(
     sync_service: Arc<SyncService>,
     db: Pool<Postgres>,

@@ -8,6 +8,11 @@ pub struct GlucoseReading {
     pub user_id: Option<i32>,
     pub value_mg_dl: f64,
     pub timestamp: DateTime<Utc>,
+    #[serde(rename = "isHigh")]
+    pub is_high: bool,
+    #[serde(rename = "isLow")]
+    pub is_low: bool,
+    pub trend: Option<String>,
     pub device_id: Option<String>,
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -18,6 +23,11 @@ pub struct NewGlucoseReading {
     pub user_id: Option<i32>,
     pub value_mg_dl: f64,
     pub timestamp: DateTime<Utc>,
+    #[serde(rename = "isHigh")]
+    pub is_high: bool,
+    #[serde(rename = "isLow")]
+    pub is_low: bool,
+    pub trend: Option<String>,
     pub device_id: Option<String>,
     pub notes: Option<String>,
 }
