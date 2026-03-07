@@ -10,7 +10,7 @@ use std::time::Duration;
 use tower::ServiceBuilder;
 use tower_governor::{
     governor::GovernorConfigBuilder,
-    key_extractor::GlobalKeyExtractor,
+    key_extractor::{GlobalKeyExtractor, SmartIpKeyExtractor},
     GovernorLayer,
 };
 use tower_http::compression::CompressionLayer;
@@ -43,6 +43,16 @@ pub fn create_app(
             .unwrap(),
     );
 
+    // Stricter per-IP rate limit for auth (login/signup) to prevent brute force and spam
+    let auth_governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .key_extractor(SmartIpKeyExtractor)
+            .per_second(1)
+            .burst_size(5)
+            .finish()
+            .unwrap(),
+    );
+
     let middleware_stack = ServiceBuilder::new()
         .option_layer(if sentry_enabled {
             Some(sentry_tower::SentryHttpLayer::new().enable_transaction())
@@ -61,7 +71,9 @@ pub fn create_app(
         .layer(CompressionLayer::new())
         .layer(cors_layer());
 
-    let auth_routes = crate::handlers::auth::routes();
+    let auth_routes = crate::handlers::auth::routes().layer(GovernorLayer {
+        config: auth_governor_conf,
+    });
 
     // Apply rate limiting only to protected API routes (glucose, sync, cgm)
     // Exclude health, Swagger UI, api-docs, and auth - they load many assets or need to stay unthrottled

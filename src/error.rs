@@ -10,6 +10,8 @@ use serde_json::json;
 pub enum AppError {
     /// Authentication errors
     AuthError(String),
+    /// Invalid input / validation (e.g. username too short)
+    ValidationError(String),
     /// API communication errors
     ApiError(String),
     /// Database errors
@@ -42,24 +44,25 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, error_message) = match &self {
             AppError::AuthError(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
+            AppError::ValidationError(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::ApiError(msg) => {
                 sentry::capture_error(&self);
                 (StatusCode::BAD_GATEWAY, msg.clone())
             }
             AppError::DatabaseError(msg) => {
                 sentry::capture_error(&self);
-                tracing::error!(error = ?self, "Database error occurred");
-                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
+                tracing::error!(error = ?msg, "Database error occurred");
+                (StatusCode::INTERNAL_SERVER_ERROR, generic_internal_message())
             }
             AppError::ConfigError(msg) => {
                 sentry::capture_error(&self);
-                tracing::error!(error = ?self, "Configuration error occurred");
-                (StatusCode::INTERNAL_SERVER_ERROR, msg.clone())
+                tracing::error!(error = ?msg, "Configuration error occurred");
+                (StatusCode::INTERNAL_SERVER_ERROR, generic_internal_message())
             }
             AppError::InternalError(err) => {
                 sentry::capture_error(&self);
                 tracing::error!(error = ?err, "Internal error occurred");
-                (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, generic_internal_message())
             }
         };
 
@@ -71,10 +74,15 @@ impl IntoResponse for AppError {
     }
 }
 
+fn generic_internal_message() -> String {
+    "Internal server error".to_string()
+}
+
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AppError::AuthError(msg) => write!(f, "Authentication error: {}", msg),
+            AppError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
             AppError::ApiError(msg) => write!(f, "API error: {}", msg),
             AppError::DatabaseError(msg) => write!(f, "Database error: {}", msg),
             AppError::ConfigError(msg) => write!(f, "Configuration error: {}", msg),

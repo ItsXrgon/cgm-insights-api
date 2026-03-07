@@ -40,7 +40,7 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
 }
 
 pub fn generate_token(user: &User) -> Result<String, AppError> {
-    let secret = env::var("JWT_SECRET").unwrap_or_else(|_| "secret".to_string());
+    let secret = jwt_secret()?;
     let expiration = Utc::now() + Duration::days(7);
 
     let claims = Claims {
@@ -60,7 +60,7 @@ pub fn generate_token(user: &User) -> Result<String, AppError> {
 }
 
 pub fn validate_token(token: &str) -> Result<Claims, AppError> {
-    let secret = env::var("JWT_SECRET").unwrap_or_else(|_| "secret".to_string());
+    let secret = jwt_secret()?;
 
     let token_data = decode::<Claims>(
         token,
@@ -72,10 +72,83 @@ pub fn validate_token(token: &str) -> Result<Claims, AppError> {
     Ok(token_data.claims)
 }
 
+/// Returns JWT_SECRET; in production it must be set and not the default placeholder.
+fn jwt_secret() -> Result<String, AppError> {
+    let secret = env::var("JWT_SECRET").unwrap_or_else(|_| "secret".to_string());
+    let is_production = env::var("APP_ENV")
+        .unwrap_or_else(|_| "development".to_string())
+        .to_lowercase()
+        == "production";
+    if is_production && (secret.is_empty() || secret == "secret") {
+        return Err(AppError::ConfigError(
+            "JWT_SECRET must be set to a strong secret in production".to_string(),
+        ));
+    }
+    Ok(secret)
+}
+
+const USERNAME_MIN_LEN: usize = 3;
+const USERNAME_MAX_LEN: usize = 64;
+const PASSWORD_MIN_LEN: usize = 8;
+const PASSWORD_MAX_LEN: usize = 256;
+const CGM_CREDENTIAL_MAX_LEN: usize = 512;
+
+fn validate_username(s: &str) -> Result<(), AppError> {
+    let len = s.chars().count();
+    if len < USERNAME_MIN_LEN {
+        return Err(AppError::ValidationError(format!(
+            "Username must be at least {} characters",
+            USERNAME_MIN_LEN
+        )));
+    }
+    if len > USERNAME_MAX_LEN {
+        return Err(AppError::ValidationError(format!(
+            "Username must be at most {} characters",
+            USERNAME_MAX_LEN
+        )));
+    }
+    Ok(())
+}
+
+fn validate_password(s: &str) -> Result<(), AppError> {
+    let len = s.chars().count();
+    if len < PASSWORD_MIN_LEN {
+        return Err(AppError::ValidationError(format!(
+            "Password must be at least {} characters",
+            PASSWORD_MIN_LEN
+        )));
+    }
+    if len > PASSWORD_MAX_LEN {
+        return Err(AppError::ValidationError(format!(
+            "Password must be at most {} characters",
+            PASSWORD_MAX_LEN
+        )));
+    }
+    Ok(())
+}
+
+fn validate_cgm_credentials(username: &str, password: &str) -> Result<(), AppError> {
+    if username.chars().count() > CGM_CREDENTIAL_MAX_LEN {
+        return Err(AppError::ValidationError(
+            "CGM username is too long".to_string(),
+        ));
+    }
+    if password.chars().count() > CGM_CREDENTIAL_MAX_LEN {
+        return Err(AppError::ValidationError(
+            "CGM password is too long".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn signup(
     pool: &Pool<Postgres>,
     request: SignupRequest,
 ) -> Result<AuthResponse, AppError> {
+    validate_username(&request.username)?;
+    validate_password(&request.password)?;
+    validate_cgm_credentials(&request.cgm_username, &request.cgm_password)?;
+
     // Check if user already exists
     if user_repository::find_by_username(pool, &request.username)
         .await?
@@ -116,6 +189,9 @@ pub async fn signup(
 }
 
 pub async fn login(pool: &Pool<Postgres>, request: LoginRequest) -> Result<AuthResponse, AppError> {
+    validate_username(&request.username)?;
+    validate_password(&request.password)?;
+
     let user = user_repository::find_by_username(pool, &request.username)
         .await?
         .ok_or_else(|| AppError::AuthError("Invalid username or password".to_string()))?;
