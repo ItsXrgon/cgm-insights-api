@@ -1,6 +1,7 @@
 # Fly.io app configuration
 # Server stays always on (min_machines_running = 1) so the CGM sync runs every 1 hour.
 app = "cgm-insights-api"
+primary_region = "cdg"
 
 [build]
 
