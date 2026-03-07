@@ -4,7 +4,7 @@ pub struct Config {
     pub database_url: String,
     pub sentry_dsn: Option<String>,
     pub environment: String,
-    /// Background CGM sync interval in seconds (default: 3600 = 1 hour)
+    /// Background CGM sync interval in seconds (default: 36000 = 10 hours)
     pub sync_interval_secs: u64,
     /// HTTP port (default: 3000)
     pub port: u16,
@@ -24,7 +24,7 @@ impl Config {
         let sync_interval_secs = env::var("SYNC_INTERVAL_SECS")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(3600);
+            .unwrap_or(36000);
 
         let port = env::var("PORT")
             .ok()
