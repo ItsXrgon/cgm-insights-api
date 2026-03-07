@@ -1,7 +1,5 @@
 # Fly.io app configuration
-# See https://fly.io/docs/reference/configuration/
 # Server stays always on (min_machines_running = 1) so the CGM sync runs every 1 hour.
-
 app = "cgm-insights-api"
 
 [build]
@@ -14,7 +12,6 @@ app = "cgm-insights-api"
 [http_service]
   internal_port = 3000
   force_https = true
-  # At least 1 machine always running (for CGM sync). Idle extra machines can stop.
   auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 1
@@ -25,30 +22,14 @@ app = "cgm-insights-api"
     hard_limit = 250
     soft_limit = 200
 
-[[vm]]
-  memory = "256mb"
-  cpu_kind = "shared"
-  cpus = 1
-
-[[services]]
-  protocol = "tcp"
-  internal_port = 3000
-
-  [[services.ports]]
-    port = 80
-    handlers = ["http"]
-  [[services.ports]]
-    port = 443
-    handlers = ["tls", "http"]
-
-  [services.concurrency]
-    type = "connections"
-    hard_limit = 25
-    soft_limit = 20
-
-  [[services.http_checks]]
+  [[http_service.checks]]
     interval = "15s"
     timeout = "2s"
     grace_period = "5s"
     method = "GET"
     path = "/health"
+
+[[vm]]
+  memory = "256mb"
+  cpu_kind = "shared"
+  cpus = 1
