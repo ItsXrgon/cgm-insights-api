@@ -47,10 +47,19 @@ Set the following variables in your `.env` file or environment:
 | `DATABASE_URL` | PostgreSQL connection string | (Required) |
 | `JWT_SECRET` | Secret key for JWT signing | (Required) |
 | `SENTRY_DSN` | Sentry project DSN (optional) | (None) |
+| `SENTRY_RELEASE` | Override release (e.g. git SHA). Defaults to cargo version | (None) |
+| `SENTRY_TRACES_SAMPLE_RATE` | Trace sampling 0.0–1.0. Use 0.1–0.2 in production | `1.0` |
 | `RUST_LOG` | Logging level (`error`, `warn`, `info`, `debug`, `trace`) | `info` |
 
 ### Setting Up Sentry
-To enable Sentry, simply provide the `SENTRY_DSN` environment variable. If omitted, Sentry initialization and its associated middlewares (tracing and HTTP layers) will be automatically disabled to avoid overhead.
+To enable Sentry, provide the `SENTRY_DSN` environment variable. When enabled, Sentry provides:
+
+- **Error tracking**: Captures errors from handlers, scheduler, and API calls.
+- **Performance tracing**: HTTP request transactions via `SentryHttpLayer` (sample rate configurable via `SENTRY_TRACES_SAMPLE_RATE`).
+- **Release health**: Session tracking per request (`SessionMode::Request`) for crash-free rate and adoption metrics.
+- **Releases**: Tag events with version; override via `SENTRY_RELEASE` (e.g. git SHA in CI/CD).
+
+If `SENTRY_DSN` is omitted, Sentry and its middlewares are disabled.
 
 ## Getting Started
 

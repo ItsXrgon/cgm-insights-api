@@ -11,12 +11,21 @@ fn main() -> anyhow::Result<()> {
             "🎯 Sentry initialized for environment: {}",
             config.environment
         );
+        let release = config
+            .sentry_release
+            .map(std::borrow::Cow::Owned)
+            .or_else(|| sentry::release_name!());
+
         let guard = sentry::init((
             dsn.as_str(),
             sentry::ClientOptions {
-                release: sentry::release_name!(),
+                release,
                 environment: Some(config.environment.clone().into()),
                 send_default_pii: true,
+                attach_stacktrace: true,
+                traces_sample_rate: config.sentry_traces_sample_rate,
+                auto_session_tracking: true,
+                session_mode: sentry::SessionMode::Request,
                 ..Default::default()
             },
         ));
