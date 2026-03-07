@@ -14,7 +14,8 @@ app = "cgm-insights-api"
 [http_service]
   internal_port = 3000
   force_https = true
-  auto_stop_machines = "off"
+  # At least 1 machine always running (for CGM sync). Idle extra machines can stop.
+  auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 1
   processes = ["app"]

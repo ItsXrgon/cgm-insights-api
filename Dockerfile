@@ -1,5 +1,6 @@
 # Multi-stage build: compile then run
-FROM rust:1.82-bookworm AS builder
+# Use latest Rust so all dependencies are supported
+FROM rust:bookworm AS builder
 
 WORKDIR /app
 COPY . .
