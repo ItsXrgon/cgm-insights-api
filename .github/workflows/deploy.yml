@@ -5,6 +5,11 @@ on:
   push:
     branches: [main, master]
 
+# Cancel in-progress deploy when a newer commit is pushed to the same branch
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deploy:
     name: Deploy to Fly.io
