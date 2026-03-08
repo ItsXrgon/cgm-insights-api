@@ -1,8 +1,10 @@
 use crate::error::AppError;
 use crate::models::{NewUser, User};
 use crate::DbPool;
+use tracing::instrument;
 
 /// Initialize the users table if it doesn't exist
+#[instrument(skip(pool))]
 pub async fn init_table(pool: &DbPool) -> Result<(), AppError> {
     sqlx::query(
         r#"
@@ -22,6 +24,7 @@ pub async fn init_table(pool: &DbPool) -> Result<(), AppError> {
 }
 
 /// Insert a new user
+#[instrument(skip(pool, user))]
 pub async fn insert(pool: &DbPool, user: NewUser) -> Result<User, AppError> {
     let record = sqlx::query_as::<_, User>(
         r#"
@@ -39,6 +42,7 @@ pub async fn insert(pool: &DbPool, user: NewUser) -> Result<User, AppError> {
 }
 
 /// Find user by username
+#[instrument(skip(pool))]
 pub async fn find_by_username(
     pool: &DbPool,
     username: &str,
@@ -58,6 +62,7 @@ pub async fn find_by_username(
 }
 
 /// Find user by ID
+#[instrument(skip(pool))]
 pub async fn find_by_id(pool: &DbPool, id: i32) -> Result<Option<User>, AppError> {
     let record = sqlx::query_as::<_, User>(
         r#"

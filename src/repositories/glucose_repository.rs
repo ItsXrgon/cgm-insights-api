@@ -2,8 +2,10 @@ use crate::error::AppError;
 use crate::models::{GlucoseReading, NewGlucoseReading};
 use crate::DbPool;
 use sqlx::{Postgres, QueryBuilder};
+use tracing::instrument;
 
 /// Initialize the glucose_readings table if it doesn't exist
+#[instrument(skip(pool))]
 pub async fn init_table(pool: &DbPool) -> Result<(), AppError> {
     sqlx::query(
         r#"
@@ -38,6 +40,7 @@ pub async fn init_table(pool: &DbPool) -> Result<(), AppError> {
 }
 
 /// Insert a new glucose reading (upsert: on conflict overrides existing row)
+#[instrument(skip(pool))]
 pub async fn insert(
     pool: &DbPool,
     reading: NewGlucoseReading,
@@ -73,6 +76,7 @@ pub async fn insert(
 /// Insert multiple glucose readings (bulk upsert: on conflict overrides existing rows).
 /// Deduplicates by (user_id, timestamp) within the batch to avoid PostgreSQL error
 /// "cannot affect row a second time" when the API returns duplicate timestamps.
+#[instrument(skip(pool, readings))]
 pub async fn insert_many(
     pool: &DbPool,
     readings: Vec<NewGlucoseReading>,
@@ -123,6 +127,7 @@ pub async fn insert_many(
 }
 
 /// Get all glucose readings for a user with optional limit
+#[instrument(skip(pool))]
 pub async fn find_all(
     pool: &DbPool,
     user_id: i32,
@@ -148,6 +153,7 @@ pub async fn find_all(
 }
 
 /// Get glucose reading by ID and user_id
+#[instrument(skip(pool))]
 pub async fn find_by_id(
     pool: &DbPool,
     user_id: i32,
@@ -169,6 +175,7 @@ pub async fn find_by_id(
 }
 
 /// Delete a glucose reading
+#[instrument(skip(pool))]
 pub async fn delete(pool: &DbPool, user_id: i32, id: i32) -> Result<bool, AppError> {
     let result = sqlx::query(
         r#"

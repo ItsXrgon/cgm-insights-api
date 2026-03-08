@@ -1,8 +1,10 @@
 use crate::error::AppError;
 use crate::models::{CgmCredential, NewCgmCredential};
 use crate::DbPool;
+use tracing::instrument;
 
 /// Initialize the cgm_credentials table if it doesn't exist
+#[instrument(skip(pool))]
 pub async fn init_table(pool: &DbPool) -> Result<(), AppError> {
     sqlx::query(
         r#"
@@ -26,6 +28,7 @@ pub async fn init_table(pool: &DbPool) -> Result<(), AppError> {
 }
 
 /// Insert a new CGM credential
+#[instrument(skip(pool, credential))]
 pub async fn insert(
     pool: &DbPool,
     credential: NewCgmCredential,
@@ -50,6 +53,7 @@ pub async fn insert(
 }
 
 /// Find active CGM credentials for all users
+#[instrument(skip(pool))]
 pub async fn find_all_active(pool: &DbPool) -> Result<Vec<CgmCredential>, AppError> {
     let records = sqlx::query_as::<_, CgmCredential>(
         r#"
@@ -65,6 +69,7 @@ pub async fn find_all_active(pool: &DbPool) -> Result<Vec<CgmCredential>, AppErr
 }
 
 /// Find all credentials for a specific user
+#[instrument(skip(pool))]
 pub async fn find_by_user_id(
     pool: &DbPool,
     user_id: i32,
@@ -85,6 +90,7 @@ pub async fn find_by_user_id(
 }
 
 /// Find credential by ID
+#[instrument(skip(pool))]
 pub async fn find_by_id(pool: &DbPool, id: i32) -> Result<Option<CgmCredential>, AppError> {
     let record = sqlx::query_as::<_, CgmCredential>(
         r#"
@@ -101,6 +107,7 @@ pub async fn find_by_id(pool: &DbPool, id: i32) -> Result<Option<CgmCredential>,
 }
 
 /// Update a CGM credential
+#[instrument(skip(pool))]
 pub async fn update(
     pool: &DbPool,
     id: i32,
@@ -137,6 +144,7 @@ pub async fn update(
 }
 
 /// Deactivate all credentials for a user
+#[instrument(skip(pool))]
 pub async fn deactivate_all_for_user(pool: &DbPool, user_id: i32) -> Result<(), AppError> {
     sqlx::query(
         r#"
@@ -153,6 +161,7 @@ pub async fn deactivate_all_for_user(pool: &DbPool, user_id: i32) -> Result<(), 
 }
 
 /// Delete a CGM credential
+#[instrument(skip(pool))]
 pub async fn delete(pool: &DbPool, id: i32) -> Result<bool, AppError> {
     let result = sqlx::query(
         r#"
