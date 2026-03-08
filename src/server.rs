@@ -1,7 +1,8 @@
 use crate::middleware::{cors_layer, jwt_auth, security_headers_layer};
 use crate::docs::openapi::{swagger_config, ApiDoc};
 use crate::services::SyncService;
-use axum::http::StatusCode;
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
 use axum::middleware::from_fn;
 use axum::Router;
 use sqlx::{Pool, Postgres};
@@ -54,6 +55,11 @@ pub fn create_app(
     );
 
     let middleware_stack = ServiceBuilder::new()
+        .option_layer(if sentry_enabled {
+            Some(sentry_tower::NewSentryLayer::<Request<Body>>::new_from_top())
+        } else {
+            None
+        })
         .option_layer(if sentry_enabled {
             Some(sentry_tower::SentryHttpLayer::new().enable_transaction())
         } else {

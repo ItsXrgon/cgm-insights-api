@@ -11,10 +11,18 @@ fn main() -> anyhow::Result<()> {
             "🎯 Sentry initialized for environment: {}",
             config.environment
         );
-        let release = config
-            .sentry_release
-            .map(std::borrow::Cow::Owned)
-            .or_else(|| sentry::release_name!());
+        let release = config.sentry_release.map(std::borrow::Cow::Owned).or_else(|| {
+            let rev = env!("GIT_REV_SHORT");
+            Some(std::borrow::Cow::Owned(format!(
+                "{}@{}",
+                env!("CARGO_PKG_NAME"),
+                if rev == "unknown" {
+                    env!("CARGO_PKG_VERSION").to_string()
+                } else {
+                    format!("{}-{}", env!("CARGO_PKG_VERSION"), rev)
+                }
+            )))
+        });
 
         let guard = sentry::init((
             dsn.as_str(),
@@ -35,7 +43,7 @@ fn main() -> anyhow::Result<()> {
         tracing_subscriber::registry()
             .with(tracing_subscriber::fmt::layer())
             .with(tracing_subscriber::EnvFilter::from_default_env())
-            .with(sentry::integrations::tracing::SentryLayer::default())
+            .with(sentry::integrations::tracing::layer())
             .init();
 
         Some(guard)

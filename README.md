@@ -47,7 +47,7 @@ Set the following variables in your `.env` file or environment:
 | `DATABASE_URL` | PostgreSQL connection string | (Required) |
 | `JWT_SECRET` | Secret key for JWT signing | (Required) |
 | `SENTRY_DSN` | Sentry project DSN (optional) | (None) |
-| `SENTRY_RELEASE` | Override release (e.g. git SHA). Defaults to cargo version | (None) |
+| `SENTRY_RELEASE` | Override release. Default: `{package}@{version}-{git-sha}` (7-char SHA at build) | (None) |
 | `SENTRY_TRACES_SAMPLE_RATE` | Trace sampling 0.0–1.0. Use 0.1–0.2 in production | `1.0` |
 | `RUST_LOG` | Logging level (`error`, `warn`, `info`, `debug`, `trace`) | `info` |
 
@@ -71,6 +71,19 @@ If `SENTRY_DSN` is omitted, Sentry and its middlewares are disabled.
 To run in production mode:
 ```bash
 APP_ENV=production cargo run
+```
+
+### Deploying to Fly.io
+The Sentry release is set from the current git commit SHA. Use the deploy script so the SHA is passed into the Docker build (`.git` is excluded from the build context):
+
+```bash
+./deploy.sh          # Linux/macOS
+./deploy.ps1         # Windows PowerShell
+```
+
+Or manually:
+```bash
+fly deploy --build-arg GIT_REV_SHORT=$(git rev-parse --short=7 HEAD)
 ```
 
 ## Improvements Made

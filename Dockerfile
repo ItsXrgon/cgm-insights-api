@@ -2,6 +2,10 @@
 # Use latest Rust so all dependencies are supported
 FROM rust:bookworm AS builder
 
+# Pass git SHA for Sentry release (fly deploy --build-arg GIT_REV_SHORT=$(git rev-parse --short=7 HEAD))
+ARG GIT_REV_SHORT=unknown
+ENV GIT_REV_SHORT=$GIT_REV_SHORT
+
 WORKDIR /app
 COPY . .
 
