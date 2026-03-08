@@ -2,7 +2,7 @@ use crate::dto::{CreateGlucoseReadingRequest, GlucoseReadingResponse};
 use crate::error::AppError;
 use crate::models::{GlucoseReading, NewGlucoseReading};
 use crate::repositories::glucose_repository;
-use sqlx::{Pool, Postgres};
+use crate::DbPool;
 
 /// Convert model to response DTO
 fn to_response(reading: GlucoseReading) -> GlucoseReadingResponse {
@@ -21,7 +21,7 @@ fn to_response(reading: GlucoseReading) -> GlucoseReadingResponse {
 
 /// Create a new glucose reading
 pub async fn create_reading(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     user_id: i32,
     request: CreateGlucoseReadingRequest,
 ) -> Result<GlucoseReadingResponse, AppError> {
@@ -49,7 +49,7 @@ pub async fn create_reading(
 
 /// Get all glucose readings for a user
 pub async fn get_readings(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     user_id: i32,
     limit: Option<i64>,
 ) -> Result<Vec<GlucoseReadingResponse>, AppError> {
@@ -60,7 +60,7 @@ pub async fn get_readings(
 
 /// Get glucose reading by ID and user_id
 pub async fn get_reading_by_id(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     user_id: i32,
     id: i32,
 ) -> Result<GlucoseReadingResponse, AppError> {
@@ -73,7 +73,7 @@ pub async fn get_reading_by_id(
 
 /// Delete a glucose reading
 pub async fn delete_reading(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     user_id: i32,
     id: i32,
 ) -> Result<bool, AppError> {

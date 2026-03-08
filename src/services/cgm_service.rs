@@ -2,7 +2,7 @@ use crate::dto::{CgmCredentialResponse, CreateCgmCredentialRequest, UpdateCgmCre
 use crate::error::AppError;
 use crate::models::{CgmCredential, NewCgmCredential};
 use crate::repositories::cgm_repository;
-use sqlx::{Pool, Postgres};
+use crate::DbPool;
 
 fn to_response(cred: CgmCredential) -> CgmCredentialResponse {
     CgmCredentialResponse {
@@ -18,7 +18,7 @@ fn to_response(cred: CgmCredential) -> CgmCredentialResponse {
 }
 
 pub async fn list_credentials(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     user_id: i32,
 ) -> Result<Vec<CgmCredentialResponse>, AppError> {
     let creds = cgm_repository::find_by_user_id(pool, user_id).await?;
@@ -26,7 +26,7 @@ pub async fn list_credentials(
 }
 
 pub async fn add_credential(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     user_id: i32,
     request: CreateCgmCredentialRequest,
 ) -> Result<CgmCredentialResponse, AppError> {
@@ -48,7 +48,7 @@ pub async fn add_credential(
 }
 
 pub async fn update_credential(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     user_id: i32,
     credential_id: i32,
     request: UpdateCgmCredentialRequest,
@@ -83,7 +83,7 @@ pub async fn update_credential(
 }
 
 pub async fn set_active_credential(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     user_id: i32,
     credential_id: i32,
 ) -> Result<CgmCredentialResponse, AppError> {
@@ -106,7 +106,7 @@ pub async fn set_active_credential(
 }
 
 pub async fn delete_credential(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     user_id: i32,
     credential_id: i32,
 ) -> Result<bool, AppError> {

@@ -1,9 +1,9 @@
 use crate::error::AppError;
 use crate::models::{NewUser, User};
-use sqlx::{Pool, Postgres};
+use crate::DbPool;
 
 /// Initialize the users table if it doesn't exist
-pub async fn init_table(pool: &Pool<Postgres>) -> Result<(), AppError> {
+pub async fn init_table(pool: &DbPool) -> Result<(), AppError> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS users (
@@ -22,7 +22,7 @@ pub async fn init_table(pool: &Pool<Postgres>) -> Result<(), AppError> {
 }
 
 /// Insert a new user
-pub async fn insert(pool: &Pool<Postgres>, user: NewUser) -> Result<User, AppError> {
+pub async fn insert(pool: &DbPool, user: NewUser) -> Result<User, AppError> {
     let record = sqlx::query_as::<_, User>(
         r#"
         INSERT INTO users (username, password_hash)
@@ -40,7 +40,7 @@ pub async fn insert(pool: &Pool<Postgres>, user: NewUser) -> Result<User, AppErr
 
 /// Find user by username
 pub async fn find_by_username(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     username: &str,
 ) -> Result<Option<User>, AppError> {
     let record = sqlx::query_as::<_, User>(
@@ -58,7 +58,7 @@ pub async fn find_by_username(
 }
 
 /// Find user by ID
-pub async fn find_by_id(pool: &Pool<Postgres>, id: i32) -> Result<Option<User>, AppError> {
+pub async fn find_by_id(pool: &DbPool, id: i32) -> Result<Option<User>, AppError> {
     let record = sqlx::query_as::<_, User>(
         r#"
         SELECT id, username, password_hash, created_at, updated_at

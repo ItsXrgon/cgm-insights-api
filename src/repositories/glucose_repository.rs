@@ -1,9 +1,10 @@
 use crate::error::AppError;
 use crate::models::{GlucoseReading, NewGlucoseReading};
-use sqlx::{Pool, Postgres, QueryBuilder};
+use crate::DbPool;
+use sqlx::{Postgres, QueryBuilder};
 
 /// Initialize the glucose_readings table if it doesn't exist
-pub async fn init_table(pool: &Pool<Postgres>) -> Result<(), AppError> {
+pub async fn init_table(pool: &DbPool) -> Result<(), AppError> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS glucose_readings (
@@ -38,7 +39,7 @@ pub async fn init_table(pool: &Pool<Postgres>) -> Result<(), AppError> {
 
 /// Insert a new glucose reading (upsert: on conflict overrides existing row)
 pub async fn insert(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     reading: NewGlucoseReading,
 ) -> Result<GlucoseReading, AppError> {
     let record = sqlx::query_as::<_, GlucoseReading>(
@@ -73,7 +74,7 @@ pub async fn insert(
 /// Deduplicates by (user_id, timestamp) within the batch to avoid PostgreSQL error
 /// "cannot affect row a second time" when the API returns duplicate timestamps.
 pub async fn insert_many(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     readings: Vec<NewGlucoseReading>,
 ) -> Result<u64, AppError> {
     if readings.is_empty() {
@@ -123,7 +124,7 @@ pub async fn insert_many(
 
 /// Get all glucose readings for a user with optional limit
 pub async fn find_all(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     user_id: i32,
     limit: Option<i64>,
 ) -> Result<Vec<GlucoseReading>, AppError> {
@@ -148,7 +149,7 @@ pub async fn find_all(
 
 /// Get glucose reading by ID and user_id
 pub async fn find_by_id(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     user_id: i32,
     id: i32,
 ) -> Result<Option<GlucoseReading>, AppError> {
@@ -168,7 +169,7 @@ pub async fn find_by_id(
 }
 
 /// Delete a glucose reading
-pub async fn delete(pool: &Pool<Postgres>, user_id: i32, id: i32) -> Result<bool, AppError> {
+pub async fn delete(pool: &DbPool, user_id: i32, id: i32) -> Result<bool, AppError> {
     let result = sqlx::query(
         r#"
         DELETE FROM glucose_readings

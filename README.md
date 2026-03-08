@@ -56,6 +56,7 @@ To enable Sentry, provide the `SENTRY_DSN` environment variable. When enabled, S
 
 - **Error tracking**: Captures errors from handlers, scheduler, and API calls.
 - **Performance tracing**: HTTP request transactions via `SentryHttpLayer` (sample rate configurable via `SENTRY_TRACES_SAMPLE_RATE`).
+- **Query tracking**: Database queries traced via `sqlx-tracing`; spans appear in Sentry performance traces and may surface in the [Queries](https://docs.sentry.io/product/insights/backend/queries/) page when span format is compatible.
 - **Release health**: Session tracking per request (`SessionMode::Request`) for crash-free rate and adoption metrics.
 - **Releases**: Tag events with version; override via `SENTRY_RELEASE` (e.g. git SHA in CI/CD).
 

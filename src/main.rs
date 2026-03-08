@@ -61,27 +61,27 @@ fn main() -> anyhow::Result<()> {
         .enable_all()
         .build()?
         .block_on(async {
-            let pool = db::connect(&config.database_url).await;
+            let pool = Arc::new(db::connect(&config.database_url).await);
 
-            repositories::user_repository::init_table(&pool)
+            repositories::user_repository::init_table(pool.as_ref())
                 .await
                 .expect("Failed to initialize users table");
 
-            repositories::cgm_repository::init_table(&pool)
+            repositories::cgm_repository::init_table(pool.as_ref())
                 .await
                 .expect("Failed to initialize cgm_credentials table");
 
-            repositories::glucose_repository::init_table(&pool)
+            repositories::glucose_repository::init_table(pool.as_ref())
                 .await
                 .expect("Failed to initialize glucose_readings table");
 
             // Initialize sync service
-            let sync_service = Arc::new(services::SyncService::new(pool.clone()));
+            let sync_service = Arc::new(services::SyncService::new(Arc::clone(&pool)));
 
             // Start background scheduler (syncs all active CGM credentials every 5 min by default)
             scheduler::start_sync_scheduler(
                 sync_service.clone(),
-                pool.clone(),
+                Arc::clone(&pool),
                 config.sync_interval_secs,
             )
             .await;

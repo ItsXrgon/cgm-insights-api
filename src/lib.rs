@@ -5,6 +5,8 @@
 
 pub mod config;
 pub mod db;
+
+pub use db::DbPool;
 pub mod dto;
 pub mod error;
 pub mod handlers;

@@ -1,6 +1,6 @@
 use crate::repositories::cgm_repository;
 use crate::services::SyncService;
-use sqlx::{Pool, Postgres};
+use crate::DbPool;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info};
@@ -9,7 +9,7 @@ use tracing::{error, info};
 /// Runs an initial sync immediately, then every `interval_secs` seconds (default 1h).
 pub async fn start_sync_scheduler(
     sync_service: Arc<SyncService>,
-    db: Pool<Postgres>,
+    db: Arc<DbPool>,
     interval_secs: u64,
 ) {
     let interval = Duration::from_secs(interval_secs);
@@ -35,10 +35,10 @@ pub async fn start_sync_scheduler(
     info!("CGM sync scheduler started");
 }
 
-async fn run_all_syncs(sync_service: &SyncService, db: &Pool<Postgres>) {
+async fn run_all_syncs(sync_service: &SyncService, db: &Arc<DbPool>) {
     info!("Running scheduled CGM sync for all active credentials");
 
-    let creds = match cgm_repository::find_all_active(db).await {
+    let creds = match cgm_repository::find_all_active(db.as_ref()).await {
         Ok(c) => c,
         Err(e) => {
             error!(error = %e, "Failed to load active CGM credentials");

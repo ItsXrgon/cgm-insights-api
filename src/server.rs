@@ -1,11 +1,11 @@
-use crate::middleware::{cors_layer, jwt_auth, security_headers_layer};
 use crate::docs::openapi::{swagger_config, ApiDoc};
+use crate::middleware::{cors_layer, jwt_auth, security_headers_layer};
 use crate::services::SyncService;
+use crate::DbPool;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::middleware::from_fn;
 use axum::Router;
-use sqlx::{Pool, Postgres};
 use std::sync::Arc;
 use std::time::Duration;
 use tower::ServiceBuilder;
@@ -22,15 +22,11 @@ use utoipa_swagger_ui::SwaggerUi;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub db: Pool<Postgres>,
+    pub db: Arc<DbPool>,
     pub sync_service: Arc<SyncService>,
 }
 
-pub fn create_app(
-    db: Pool<Postgres>,
-    sync_service: Arc<SyncService>,
-    sentry_enabled: bool,
-) -> Router {
+pub fn create_app(db: Arc<DbPool>, sync_service: Arc<SyncService>, sentry_enabled: bool) -> Router {
     let state = AppState { db, sync_service };
 
     let (h1, h2, h3, h4) = security_headers_layer();

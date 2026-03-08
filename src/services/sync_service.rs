@@ -2,16 +2,17 @@ use crate::error::AppError;
 use crate::models::CgmCredential;
 use crate::repositories::glucose_repository;
 use crate::services::LibreLinkClient;
-use sqlx::{Pool, Postgres};
+use crate::DbPool;
+use std::sync::Arc;
 use tracing::{info, warn};
 
 /// Sync service that fetches data from CGM platforms and stores it in the database
 pub struct SyncService {
-    db: Pool<Postgres>,
+    db: Arc<DbPool>,
 }
 
 impl SyncService {
-    pub fn new(db: Pool<Postgres>) -> Self {
+    pub fn new(db: Arc<DbPool>) -> Self {
         Self { db }
     }
 
@@ -51,7 +52,7 @@ impl SyncService {
             return Ok(0);
         }
 
-        let stored_count = glucose_repository::insert_many(&self.db, readings).await?;
+        let stored_count = glucose_repository::insert_many(self.db.as_ref(), readings).await?;
         Ok(stored_count as usize)
     }
 }

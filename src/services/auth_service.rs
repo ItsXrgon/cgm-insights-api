@@ -5,7 +5,7 @@ use argon2::{
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use sqlx::{Pool, Postgres};
+use crate::DbPool;
 use std::env;
 
 use crate::dto::{AuthResponse, LoginRequest, SignupRequest, UserResponse};
@@ -142,7 +142,7 @@ fn validate_cgm_credentials(username: &str, password: &str) -> Result<(), AppErr
 }
 
 pub async fn signup(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     request: SignupRequest,
 ) -> Result<AuthResponse, AppError> {
     validate_username(&request.username)?;
@@ -188,7 +188,7 @@ pub async fn signup(
     })
 }
 
-pub async fn login(pool: &Pool<Postgres>, request: LoginRequest) -> Result<AuthResponse, AppError> {
+pub async fn login(pool: &DbPool, request: LoginRequest) -> Result<AuthResponse, AppError> {
     validate_username(&request.username)?;
     validate_password(&request.password)?;
 

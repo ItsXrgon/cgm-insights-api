@@ -1,9 +1,9 @@
 use crate::error::AppError;
 use crate::models::{CgmCredential, NewCgmCredential};
-use sqlx::{Pool, Postgres};
+use crate::DbPool;
 
 /// Initialize the cgm_credentials table if it doesn't exist
-pub async fn init_table(pool: &Pool<Postgres>) -> Result<(), AppError> {
+pub async fn init_table(pool: &DbPool) -> Result<(), AppError> {
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS cgm_credentials (
@@ -27,7 +27,7 @@ pub async fn init_table(pool: &Pool<Postgres>) -> Result<(), AppError> {
 
 /// Insert a new CGM credential
 pub async fn insert(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     credential: NewCgmCredential,
 ) -> Result<CgmCredential, AppError> {
     let record = sqlx::query_as::<_, CgmCredential>(
@@ -50,7 +50,7 @@ pub async fn insert(
 }
 
 /// Find active CGM credentials for all users
-pub async fn find_all_active(pool: &Pool<Postgres>) -> Result<Vec<CgmCredential>, AppError> {
+pub async fn find_all_active(pool: &DbPool) -> Result<Vec<CgmCredential>, AppError> {
     let records = sqlx::query_as::<_, CgmCredential>(
         r#"
         SELECT id, user_id, cgm_type, username, password, region, is_active, created_at, updated_at
@@ -66,7 +66,7 @@ pub async fn find_all_active(pool: &Pool<Postgres>) -> Result<Vec<CgmCredential>
 
 /// Find all credentials for a specific user
 pub async fn find_by_user_id(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     user_id: i32,
 ) -> Result<Vec<CgmCredential>, AppError> {
     let records = sqlx::query_as::<_, CgmCredential>(
@@ -85,7 +85,7 @@ pub async fn find_by_user_id(
 }
 
 /// Find credential by ID
-pub async fn find_by_id(pool: &Pool<Postgres>, id: i32) -> Result<Option<CgmCredential>, AppError> {
+pub async fn find_by_id(pool: &DbPool, id: i32) -> Result<Option<CgmCredential>, AppError> {
     let record = sqlx::query_as::<_, CgmCredential>(
         r#"
         SELECT id, user_id, cgm_type, username, password, region, is_active, created_at, updated_at
@@ -102,7 +102,7 @@ pub async fn find_by_id(pool: &Pool<Postgres>, id: i32) -> Result<Option<CgmCred
 
 /// Update a CGM credential
 pub async fn update(
-    pool: &Pool<Postgres>,
+    pool: &DbPool,
     id: i32,
     cgm_type: Option<String>,
     username: Option<String>,
@@ -137,7 +137,7 @@ pub async fn update(
 }
 
 /// Deactivate all credentials for a user
-pub async fn deactivate_all_for_user(pool: &Pool<Postgres>, user_id: i32) -> Result<(), AppError> {
+pub async fn deactivate_all_for_user(pool: &DbPool, user_id: i32) -> Result<(), AppError> {
     sqlx::query(
         r#"
         UPDATE cgm_credentials
@@ -153,7 +153,7 @@ pub async fn deactivate_all_for_user(pool: &Pool<Postgres>, user_id: i32) -> Res
 }
 
 /// Delete a CGM credential
-pub async fn delete(pool: &Pool<Postgres>, id: i32) -> Result<bool, AppError> {
+pub async fn delete(pool: &DbPool, id: i32) -> Result<bool, AppError> {
     let result = sqlx::query(
         r#"
         DELETE FROM cgm_credentials
