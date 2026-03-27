@@ -40,7 +40,6 @@ pub fn create_app(db: Arc<DbPool>, sync_service: Arc<SyncService>, sentry_enable
             .unwrap(),
     );
 
-    // Stricter per-IP rate limit for auth (login/signup) to prevent brute force and spam
     let auth_governor_conf = Arc::new(
         GovernorConfigBuilder::default()
             .key_extractor(SmartIpKeyExtractor)
@@ -77,8 +76,7 @@ pub fn create_app(db: Arc<DbPool>, sync_service: Arc<SyncService>, sentry_enable
         config: auth_governor_conf,
     });
 
-    // Apply rate limiting only to protected API routes (glucose, sync, cgm)
-    // Exclude health, Swagger UI, api-docs, and auth - they load many assets or need to stay unthrottled
+    // Apply rate limiting only to protected API routes
     let api_routes = Router::new()
         .merge(crate::handlers::api_info::routes())
         .merge(crate::handlers::glucose::routes())
