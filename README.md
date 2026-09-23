@@ -1,98 +1,136 @@
 # CGM Insights API
 
-A Rust-based API for syncing and storing Continuous Glucose Monitor (CGM) data from multiple platforms (LibreLink Up, Dexcom).
-
-## Features
-
-- **Automated Multi-User Sync**: Fetches glucose readings every 5 minutes for all active user credentials.
-- **Support for Multiple CGMs**: Users can store multiple CGM credentials (e.g., FreeStyle, Dexcom).
-- **Active Credential Management**: Switch between different CGM sources or update credentials easily.
-- **JWT Authentication**: Secure signup and login system to protect user data.
-- **Sentry Error Tracking**: Full integration with Sentry for real-time error tracking, logging, and release management.
-- **Environment Support**: Flexible configuration using `.env.development`, `.env.production`, or standard environment variables.
-- **REST API**: 
-    - `POST /api/auth/signup`: Register with initial CGM credentials.
-    - `POST /api/auth/login`: Authenticate and receive a JWT.
-    - `GET /api/glucose`: Retrieve your historical glucose readings.
-    - `POST /api/sync`: Manually trigger a synchronization for your active CGM.
-    - `GET /api/cgm`: Manage your CGM credentials.
-    - `GET /health`: System health check (public).
-- **Security**: 
-    - **Rate Limiting**: Protects against brute-force and DDoS (per-IP).
-    - **Security Headers**: NOSNIFF, HSTS, XSS protection, and frame denial.
-    - **Authentication**: JWT-based protection for all `/api` endpoints.
-    - **Timeouts**: Automated request cancellation after 30 seconds.
-- **Efficient Storage**: Uses bulk inserts and database-level deduplication per user.
+Syncs FreeStyle Libre (LibreLink Up) glucose data into Postgres and exposes it over a JWT-protected API. Dexcom is not implemented yet.
 
 ## Prerequisites
 
-- Rust (latest stable)
+- Rust (stable)
 - PostgreSQL
 
-## Configuration
+## Setup
 
-The application uses `dotenvy` to load configuration from environment files. It supports environment-specific files based on the `APP_ENV` variable.
-
-### Environment Files
-- `.env.development`: Loaded when `APP_ENV=development` (default).
-- `.env.production`: Loaded when `APP_ENV=production`.
-- `.env`: Fallback file if the specific environment file is missing.
-
-### Environment Variables
-Set the following variables in your `.env` file or environment:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `APP_ENV` | Application environment (`development`, `production`) | `development` |
-| `DATABASE_URL` | PostgreSQL connection string | (Required) |
-| `JWT_SECRET` | Secret key for JWT signing | (Required) |
-| `SENTRY_DSN` | Sentry project DSN (optional) | (None) |
-| `SENTRY_RELEASE` | Override release. Default: `{package}@{version}-{git-sha}` (7-char SHA at build) | (None) |
-| `SENTRY_TRACES_SAMPLE_RATE` | Trace sampling 0.0–1.0. Use 0.1–0.2 in production | `1.0` |
-| `RUST_LOG` | Logging level (`error`, `warn`, `info`, `debug`, `trace`) | `info` |
-
-### Setting Up Sentry
-To enable Sentry, provide the `SENTRY_DSN` environment variable. When enabled, Sentry provides:
-
-- **Error tracking**: Captures errors from handlers, scheduler, and API calls.
-- **Performance tracing**: HTTP request transactions via `SentryHttpLayer` (sample rate configurable via `SENTRY_TRACES_SAMPLE_RATE`).
-- **Query tracking**: Database queries traced via `sqlx-tracing`; spans appear in Sentry performance traces and may surface in the [Queries](https://docs.sentry.io/product/insights/backend/queries/) page when span format is compatible.
-- **Release health**: Session tracking per request (`SessionMode::Request`) for crash-free rate and adoption metrics.
-- **Releases**: Tag events with version; override via `SENTRY_RELEASE` (e.g. git SHA in CI/CD).
-
-If `SENTRY_DSN` is omitted, Sentry and its middlewares are disabled.
-
-## Getting Started
-
-1. Clone the repository
-2. Create your environment file: `cp .env.example .env.development`
-3. Edit `.env.development` with your local settings.
-4. Run the application: `cargo run`
-
-To run in production mode:
-```bash
-APP_ENV=production cargo run
-```
-
-### Deploying to Fly.io
-The Sentry release is set from the current git commit SHA. Use the deploy script so the SHA is passed into the Docker build (`.git` is excluded from the build context):
+1. Create a database and copy the env file:
 
 ```bash
-./deploy.sh          # Linux/macOS
-./deploy.ps1         # Windows PowerShell
+cp .env.example .env.development
 ```
 
-Or manually:
+1. Set at least:
+
+
+| Variable             | Required | Notes                                                |
+| -------------------- | -------- | ---------------------------------------------------- |
+| `DATABASE_URL`       | yes      | Postgres connection string                           |
+| `JWT_SECRET`         | yes      | Any long random string                               |
+| `APP_ENV`            | no       | Defaults to `development` (loads `.env.development`) |
+| `PORT`               | no       | Defaults to `3000`                                   |
+| `SYNC_INTERVAL_SECS` | no       | Worker sync interval; default `36000` (10 hours)     |
+| `RUST_LOG`           | no       | Defaults to `info`                                   |
+
+
+Loads `.env.{APP_ENV}` first, then falls back to `.env`.
+
+1. Run the API:
+
 ```bash
-fly deploy --build-arg GIT_REV_SHORT=$(git rev-parse --short=7 HEAD)
+cargo run
 ```
 
-## Improvements Made
+- Health: `http://127.0.0.1:3000/health`
+- Swagger: `http://127.0.0.1:3000/swagger-ui/`
 
-- **Optional Sentry Configuration**: Sentry is now fully optional. Tracing and HTTP middleware layers are only attached if `SENTRY_DSN` is provided. The release name is automatically determined from the package version in `Cargo.toml`.
-- **Multi-Environment Support**: The application now dynamically loads `.env.development` or `.env.production` based on the `APP_ENV` variable.
-- **User Authentication**: Implemented a full Signup/Login system with password hashing (Argon2) and JWT tokens.
-- **Multi-Credential Support**: Users can now have multiple CGM credentials and choose which one is active.
-- **Multi-Tenant Architecture**: Glucose readings are now linked to specific users, allowing the server to serve multiple users concurrently.
-- **Scalable Syncing**: The background scheduler now iterates through all active credentials across all users.
-- **Migration Support**: Updated database initialization to handle schema changes (like adding `user_id` to existing readings).
+`cargo run` starts the HTTP API only. Background sync needs a worker process (see below).
+
+## CGM credentials (put them in the database)
+
+LibreLink Up email/password are stored per user in `cgm_credentials`.
+
+**Option A — signup (creates user + first credential):**
+
+```http
+POST /api/auth/signup
+Content-Type: application/json
+
+{
+  "username": "alice",
+  "password": "your-app-password",
+  "cgmUsername": "libreview@email.com",
+  "cgmPassword": "libreview-password",
+  "cgmType": "FreeStyle",
+  "cgmRegion": "eu"
+}
+```
+
+`cgmType` is `FreeStyle` (or `Dexcom`, not wired yet). `cgmRegion` examples: `eu`, `us`.
+
+**Option B — after login**, manage credentials under `/api/cgm` (Bearer token required):
+
+
+| Method   | Path                   | Purpose          |
+| -------- | ---------------------- | ---------------- |
+| `GET`    | `/api/cgm`             | List credentials |
+| `POST`   | `/api/cgm`             | Add credential   |
+| `PATCH`  | `/api/cgm/{id}`        | Update           |
+| `POST`   | `/api/cgm/{id}/active` | Set active       |
+| `DELETE` | `/api/cgm/{id}`        | Delete           |
+
+
+Only **active** credentials are synced. Readings are stored under that user.
+
+**Pull data now:**
+
+```http
+POST /api/sync
+Authorization: Bearer <token>
+```
+
+**Readings:**
+
+```http
+GET /api/glucose
+Authorization: Bearer <token>
+```
+
+
+
+### Optional env override
+
+If `CGM_USERNAME` / `CGM_PASSWORD` / `CGM_REGION` are set, they override the stored values when talking to LibreLink. You still need an active row in `cgm_credentials` so the worker knows which user to attach readings to.
+
+## Background sync (worker)
+
+The scheduler loads all active credentials, syncs once on start, then every `SYNC_INTERVAL_SECS`.
+
+```bash
+FLY_PROCESS_GROUP=worker cargo run
+```
+
+On Fly, the `worker` process group runs this automatically. Pushing to `main`/`master` deploys via GitHub Actions. Manual deploy:
+
+```bash
+./deploy.sh
+# or: fly deploy --build-arg GIT_REV_SHORT=$(git rev-parse --short=7 HEAD)
+```
+
+
+
+## Auth & other endpoints
+
+
+| Method | Path               | Auth | Notes                         |
+| ------ | ------------------ | ---- | ----------------------------- |
+| `POST` | `/api/auth/signup` | no   | Creates user + CGM credential |
+| `POST` | `/api/auth/login`  | no   | Returns JWT                   |
+| `GET`  | `/api/glucose`     | yes  | List readings                 |
+| `POST` | `/api/sync`        | yes  | Sync active credential now    |
+| `GET`  | `/api/cgm`         | yes  | Credential CRUD (see above)   |
+| `GET`  | `/health`          | no   | Health check                  |
+
+
+
+
+## Sentry (optional)
+
+Set `SENTRY_DSN` to enable error tracking. Omit it and Sentry stays off.
+
+Optional: `SENTRY_RELEASE`, `SENTRY_TRACES_SAMPLE_RATE` (default `1.0`).
