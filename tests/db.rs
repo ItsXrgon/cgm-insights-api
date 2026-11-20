@@ -12,7 +12,7 @@ use cgm_insights_api::repositories::{cgm_repository, glucose_repository, user_re
 use cgm_insights_api::server::AppState;
 use cgm_insights_api::services::SyncService;
 use cgm_insights_api::{create_app, db, Config, DbPool};
-use chrono::{Duration, TimeZone, Utc};
+use chrono::{Duration, SubsecRound, TimeZone, Utc};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -250,7 +250,9 @@ async fn range_queries_and_cursor() {
     let p = pool().await;
     let u = user(&p).await;
     let other = user(&p).await;
-    let base = Utc::now() - Duration::days(1);
+    // Whole seconds: Postgres keeps microseconds, so a nanosecond base would make
+    // stored timestamps compare a hair early.
+    let base = (Utc::now() - Duration::days(1)).trunc_subsecs(0);
     let t = |m: i64| base + Duration::minutes(m);
     let rows: Vec<_> = (0..10)
         .map(|m| NewGlucoseReading {
