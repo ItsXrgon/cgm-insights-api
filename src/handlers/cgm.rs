@@ -1,44 +1,44 @@
-use crate::dto::{CreateCgmCredentialRequest, UpdateCgmCredentialRequest};
+use crate::dto::{
+    ApiMessageResponse, CgmCredentialResponse, CreateCgmCredentialRequest, DataResponse,
+    UpdateCgmCredentialRequest,
+};
 use crate::error::AppError;
 use crate::server::AppState;
 use crate::services::{auth_service::Claims, cgm_service};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    routing::{delete, get, patch, post},
+    routing::{get, post},
     Extension, Json, Router,
 };
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/cgm", get(list_credentials))
-        .route("/cgm", post(add_credential))
-        .route("/cgm/{id}", patch(update_credential))
+        .route("/cgm", get(list_credentials).post(add_credential))
+        .route(
+            "/cgm/{id}",
+            axum::routing::patch(update_credential).delete(delete_credential),
+        )
         .route("/cgm/{id}/active", post(set_active))
-        .route("/cgm/{id}", delete(delete_credential))
 }
 
-/// List all CGM credentials for the current user
+/// List all CGM credentials for the current user, with their latest sync status
 #[utoipa::path(
     get,
     path = "/api/cgm",
     tag = "CGM",
     security(("bearer_auth" = [])),
     responses(
-        (status = 200, description = "List of credentials"),
+        (status = 200, description = "List of credentials", body = DataResponse<Vec<CgmCredentialResponse>>),
         (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
     ),
 )]
 pub async fn list_credentials(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<DataResponse<Vec<CgmCredentialResponse>>>, AppError> {
     let creds = cgm_service::list_credentials(&state.db, claims.sub).await?;
-
-    Ok(Json(serde_json::json!({
-        "success": true,
-        "data": creds
-    })))
+    Ok(Json(DataResponse::new(creds)))
 }
 
 /// Add a new CGM credential
@@ -49,7 +49,8 @@ pub async fn list_credentials(
     security(("bearer_auth" = [])),
     request_body = CreateCgmCredentialRequest,
     responses(
-        (status = 201, description = "Credential created"),
+        (status = 201, description = "Credential created", body = DataResponse<CgmCredentialResponse>),
+        (status = 400, description = "Invalid input", body = crate::dto::ErrorResponse),
         (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
     ),
 )]
@@ -57,16 +58,9 @@ pub async fn add_credential(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(request): Json<CreateCgmCredentialRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
+) -> Result<(StatusCode, Json<DataResponse<CgmCredentialResponse>>), AppError> {
     let cred = cgm_service::add_credential(&state.db, claims.sub, request).await?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::json!({
-            "success": true,
-            "data": cred
-        })),
-    ))
+    Ok((StatusCode::CREATED, Json(DataResponse::new(cred))))
 }
 
 /// Update an existing CGM credential
@@ -78,7 +72,8 @@ pub async fn add_credential(
     params(("id" = i32, Path, description = "Credential ID")),
     request_body = UpdateCgmCredentialRequest,
     responses(
-        (status = 200, description = "Credential updated"),
+        (status = 200, description = "Credential updated", body = DataResponse<CgmCredentialResponse>),
+        (status = 400, description = "Invalid input", body = crate::dto::ErrorResponse),
         (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
         (status = 404, description = "Not found", body = crate::dto::ErrorResponse),
     ),
@@ -88,13 +83,9 @@ pub async fn update_credential(
     Extension(claims): Extension<Claims>,
     Path(id): Path<i32>,
     Json(request): Json<UpdateCgmCredentialRequest>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<DataResponse<CgmCredentialResponse>>, AppError> {
     let cred = cgm_service::update_credential(&state.db, claims.sub, id, request).await?;
-
-    Ok(Json(serde_json::json!({
-        "success": true,
-        "data": cred
-    })))
+    Ok(Json(DataResponse::new(cred)))
 }
 
 /// Set a credential as the active one for syncing
@@ -105,7 +96,7 @@ pub async fn update_credential(
     security(("bearer_auth" = [])),
     params(("id" = i32, Path, description = "Credential ID")),
     responses(
-        (status = 200, description = "Credential set as active"),
+        (status = 200, description = "Credential set as active", body = DataResponse<CgmCredentialResponse>),
         (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
         (status = 404, description = "Not found", body = crate::dto::ErrorResponse),
     ),
@@ -114,13 +105,9 @@ pub async fn set_active(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<i32>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<DataResponse<CgmCredentialResponse>>, AppError> {
     let cred = cgm_service::set_active_credential(&state.db, claims.sub, id).await?;
-
-    Ok(Json(serde_json::json!({
-        "success": true,
-        "data": cred
-    })))
+    Ok(Json(DataResponse::new(cred)))
 }
 
 /// Delete a CGM credential
@@ -131,7 +118,7 @@ pub async fn set_active(
     security(("bearer_auth" = [])),
     params(("id" = i32, Path, description = "Credential ID")),
     responses(
-        (status = 200, description = "Credential deleted"),
+        (status = 200, description = "Credential deleted", body = ApiMessageResponse),
         (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
         (status = 404, description = "Not found", body = crate::dto::ErrorResponse),
     ),
@@ -140,14 +127,9 @@ pub async fn delete_credential(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<i32>,
-) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
+) -> Result<Json<ApiMessageResponse>, AppError> {
     cgm_service::delete_credential(&state.db, claims.sub, id).await?;
-
-    Ok((
-        StatusCode::OK,
-        Json(serde_json::json!({
-            "success": true,
-            "message": "Credential deleted successfully"
-        })),
-    ))
+    Ok(Json(ApiMessageResponse::ok(
+        "Credential deleted successfully",
+    )))
 }

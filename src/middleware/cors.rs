@@ -1,16 +1,10 @@
+use crate::config::Config;
 use axum::http::{header, HeaderValue, Method};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
-/// Configure CORS middleware.
-/// In production (APP_ENV=production), uses ALLOWED_ORIGINS (comma-separated).
-/// In development, allows any origin.
-pub fn cors_layer() -> CorsLayer {
-    let is_dev = std::env::var("APP_ENV")
-        .unwrap_or_else(|_| "development".to_string())
-        .to_lowercase()
-        == "development";
-
-    let mut cors = CorsLayer::new()
+/// CORS: any origin in development, `Config::allowed_origins` everywhere else.
+pub fn cors_layer(config: &Config) -> CorsLayer {
+    let cors = CorsLayer::new()
         .allow_methods([
             Method::GET,
             Method::POST,
@@ -25,28 +19,16 @@ pub fn cors_layer() -> CorsLayer {
             header::ORIGIN,
         ]);
 
-    if is_dev {
-        cors = cors.allow_origin(Any);
-    } else {
-        let origins_str = std::env::var("ALLOWED_ORIGINS")
-            .unwrap_or_else(|_| "https://xrgon.com".to_string());
-        let origins: Vec<HeaderValue> = origins_str
-            .split(',')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| {
-                s.parse::<HeaderValue>().unwrap_or_else(|_| {
-                    panic!("Invalid CORS origin in ALLOWED_ORIGINS: {:?}", s)
-                })
-            })
-            .collect();
-        if origins.is_empty() {
-            panic!("ALLOWED_ORIGINS must contain at least one origin in production");
+    match &config.allowed_origins {
+        None => cors.allow_origin(Any),
+        Some(origins) => {
+            // Validated in Config::from_lookup
+            let origins: Vec<HeaderValue> = origins
+                .iter()
+                .filter_map(|o| HeaderValue::from_str(o).ok())
+                .collect();
+            cors.allow_origin(AllowOrigin::list(origins))
+                .allow_credentials(true)
         }
-        cors = cors
-            .allow_origin(AllowOrigin::list(origins))
-            .allow_credentials(true);
     }
-
-    cors
 }

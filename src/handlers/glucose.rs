@@ -1,4 +1,7 @@
-use crate::dto::CreateGlucoseReadingRequest;
+use crate::dto::{
+    ApiMessageResponse, CreateGlucoseReadingRequest, DataResponse, GlucoseListQuery,
+    GlucoseListResponse, GlucoseReadingResponse,
+};
 use crate::error::AppError;
 use crate::server::AppState;
 use crate::services::auth_service::Claims;
@@ -6,23 +9,14 @@ use crate::services::glucose_service;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::{delete, get, post},
+    routing::get,
     Extension, Json, Router,
 };
-use serde::Deserialize;
-use utoipa::{IntoParams, ToSchema};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
-        .route("/glucose", post(create_reading))
-        .route("/glucose", get(get_readings))
-        .route("/glucose/{id}", get(get_reading))
-        .route("/glucose/{id}", delete(delete_reading))
-}
-
-#[derive(Debug, Deserialize, IntoParams, ToSchema)]
-pub struct ListQuery {
-    pub limit: Option<i64>,
+        .route("/glucose", get(get_readings).post(create_reading))
+        .route("/glucose/{id}", get(get_reading).delete(delete_reading))
 }
 
 /// Create a new glucose reading
@@ -33,7 +27,8 @@ pub struct ListQuery {
     security(("bearer_auth" = [])),
     request_body = CreateGlucoseReadingRequest,
     responses(
-        (status = 201, description = "Reading created"),
+        (status = 201, description = "Reading created", body = DataResponse<GlucoseReadingResponse>),
+        (status = 400, description = "Invalid value", body = crate::dto::ErrorResponse),
         (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
     ),
 )]
@@ -41,42 +36,33 @@ pub async fn create_reading(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Json(request): Json<CreateGlucoseReadingRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
+) -> Result<(StatusCode, Json<DataResponse<GlucoseReadingResponse>>), AppError> {
     let reading = glucose_service::create_reading(&state.db, claims.sub, request).await?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::json!({
-            "success": true,
-            "data": reading
-        })),
-    ))
+    Ok((StatusCode::CREATED, Json(DataResponse::new(reading))))
 }
 
-/// Get all glucose readings for the current user
+/// List readings in a time window, newest first, paginated with `nextTo`
 #[utoipa::path(
     get,
     path = "/api/glucose",
     tag = "Glucose",
     security(("bearer_auth" = [])),
-    params(ListQuery),
+    params(GlucoseListQuery),
     responses(
-        (status = 200, description = "List of readings"),
+        (status = 200, description = "A page of readings", body = GlucoseListResponse),
+        (status = 400, description = "Invalid window", body = crate::dto::ErrorResponse),
         (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
     ),
 )]
 pub async fn get_readings(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Query(query): Query<ListQuery>,
-) -> Result<Json<serde_json::Value>, AppError> {
-    let readings = glucose_service::get_readings(&state.db, claims.sub, query.limit).await?;
-
-    Ok(Json(serde_json::json!({
-        "success": true,
-        "data": readings,
-        "count": readings.len()
-    })))
+    Query(query): Query<GlucoseListQuery>,
+) -> Result<Json<GlucoseListResponse>, AppError> {
+    let page =
+        glucose_service::get_readings(&state.db, claims.sub, query.from, query.to, query.limit)
+            .await?;
+    Ok(Json(page))
 }
 
 /// Get a specific glucose reading by ID
@@ -87,7 +73,7 @@ pub async fn get_readings(
     security(("bearer_auth" = [])),
     params(("id" = i32, Path, description = "Reading ID")),
     responses(
-        (status = 200, description = "Reading found"),
+        (status = 200, description = "Reading found", body = DataResponse<GlucoseReadingResponse>),
         (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
         (status = 404, description = "Not found", body = crate::dto::ErrorResponse),
     ),
@@ -96,13 +82,9 @@ pub async fn get_reading(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<i32>,
-) -> Result<Json<serde_json::Value>, AppError> {
+) -> Result<Json<DataResponse<GlucoseReadingResponse>>, AppError> {
     let reading = glucose_service::get_reading_by_id(&state.db, claims.sub, id).await?;
-
-    Ok(Json(serde_json::json!({
-        "success": true,
-        "data": reading
-    })))
+    Ok(Json(DataResponse::new(reading)))
 }
 
 /// Delete a glucose reading
@@ -113,7 +95,7 @@ pub async fn get_reading(
     security(("bearer_auth" = [])),
     params(("id" = i32, Path, description = "Reading ID")),
     responses(
-        (status = 200, description = "Reading deleted"),
+        (status = 200, description = "Reading deleted", body = ApiMessageResponse),
         (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
         (status = 404, description = "Not found", body = crate::dto::ErrorResponse),
     ),
@@ -122,14 +104,7 @@ pub async fn delete_reading(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
     Path(id): Path<i32>,
-) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
+) -> Result<Json<ApiMessageResponse>, AppError> {
     glucose_service::delete_reading(&state.db, claims.sub, id).await?;
-
-    Ok((
-        StatusCode::OK,
-        Json(serde_json::json!({
-            "success": true,
-            "message": "Reading deleted successfully"
-        })),
-    ))
+    Ok(Json(ApiMessageResponse::ok("Reading deleted successfully")))
 }

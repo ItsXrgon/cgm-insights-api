@@ -1,18 +1,17 @@
+use crate::config::Config;
 use crate::docs::openapi::{swagger_config, ApiDoc};
 use crate::middleware::{cors_layer, jwt_auth, security_headers_layer};
 use crate::services::SyncService;
 use crate::DbPool;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use axum::middleware::from_fn;
+use axum::middleware::from_fn_with_state;
 use axum::Router;
 use std::sync::Arc;
 use std::time::Duration;
 use tower::ServiceBuilder;
 use tower_governor::{
-    governor::GovernorConfigBuilder,
-    key_extractor::SmartIpKeyExtractor,
-    GovernorLayer,
+    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
 };
 use tower_http::compression::CompressionLayer;
 use tower_http::timeout::TimeoutLayer;
@@ -24,12 +23,13 @@ use utoipa_swagger_ui::SwaggerUi;
 pub struct AppState {
     pub db: Arc<DbPool>,
     pub sync_service: Arc<SyncService>,
+    pub config: Arc<Config>,
 }
 
 /// Build the router. Serve it with `into_make_service_with_connect_info::<SocketAddr>()`
 /// so rate limiting can fall back to the peer IP when no proxy header is present.
-pub fn create_app(db: Arc<DbPool>, sync_service: Arc<SyncService>, sentry_enabled: bool) -> Router {
-    let state = AppState { db, sync_service };
+pub fn create_app(state: AppState) -> Router {
+    let sentry_enabled = state.config.sentry_dsn.is_some();
 
     let (h1, h2, h3, h4) = security_headers_layer();
 
@@ -74,7 +74,7 @@ pub fn create_app(db: Arc<DbPool>, sync_service: Arc<SyncService>, sentry_enable
             Duration::from_secs(30),
         ))
         .layer(CompressionLayer::new())
-        .layer(cors_layer());
+        .layer(cors_layer(&state.config));
 
     let auth_routes = crate::handlers::auth::routes().layer(GovernorLayer {
         config: auth_governor_conf,
@@ -86,7 +86,9 @@ pub fn create_app(db: Arc<DbPool>, sync_service: Arc<SyncService>, sentry_enable
         .merge(crate::handlers::glucose::routes())
         .merge(crate::handlers::sync::routes())
         .merge(crate::handlers::cgm::routes())
-        .layer(from_fn(jwt_auth))
+        .merge(crate::handlers::insights::routes())
+        .merge(crate::handlers::account::routes())
+        .layer(from_fn_with_state(state.clone(), jwt_auth))
         .layer(GovernorLayer {
             config: governor_conf,
         });
@@ -102,4 +104,35 @@ pub fn create_app(db: Arc<DbPool>, sync_service: Arc<SyncService>, sentry_enable
         .nest("/api", api_routes)
         .with_state(state)
         .layer(middleware_stack)
+}
+
+/// Resolves on Ctrl-C or SIGTERM (what Fly and Docker send on deploy/stop).
+pub async fn shutdown_signal() {
+    let ctrl_c = async {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::error!(error = %e, "Failed to listen for Ctrl-C");
+            std::future::pending::<()>().await;
+        }
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to listen for SIGTERM");
+                std::future::pending::<()>().await;
+            }
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
+    tracing::info!("Shutdown signal received");
 }

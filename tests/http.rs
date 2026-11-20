@@ -7,8 +7,10 @@ use axum::extract::ConnectInfo;
 use axum::http::{header, HeaderMap, Method, Request, StatusCode};
 use axum::Router;
 use cgm_insights_api::models::User;
+use cgm_insights_api::server::AppState;
 use cgm_insights_api::services::{generate_token, SyncService};
-use cgm_insights_api::{create_app, DbPool};
+use cgm_insights_api::{create_app, Config, DbPool};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -19,8 +21,18 @@ fn app() -> Router {
         .connect_lazy("postgres://nobody:nothing@127.0.0.1:1/none")
         .unwrap();
     let db: Arc<DbPool> = Arc::new(pool.into());
-    let sync = Arc::new(SyncService::new(Arc::clone(&db)));
-    create_app(db, sync, false)
+    let sync_service = Arc::new(SyncService::new(Arc::clone(&db), 60));
+    create_app(AppState {
+        db,
+        sync_service,
+        config: Arc::new(config()),
+    })
+}
+
+/// Development config: any CORS origin, development JWT secret.
+fn config() -> Config {
+    let vars = HashMap::from([("DATABASE_URL", "postgres://unused")]);
+    Config::from_lookup(|k| vars.get(k).map(|v| v.to_string())).unwrap()
 }
 
 /// Sends the request the way `axum::serve(.. into_make_service_with_connect_info ..)`
@@ -49,22 +61,27 @@ fn json_post(uri: &str, body: serde_json::Value) -> Request<Body> {
 
 fn bearer(user_id: i32) -> String {
     let now = chrono::Utc::now();
-    let token = generate_token(&User {
-        id: user_id,
-        username: "tester".into(),
-        password_hash: String::new(),
-        created_at: now,
-        updated_at: now,
-    })
+    let token = generate_token(
+        &User {
+            id: user_id,
+            username: "tester".into(),
+            password_hash: String::new(),
+            created_at: now,
+            updated_at: now,
+        },
+        &config().jwt_secret,
+    )
     .unwrap();
     format!("Bearer {}", token)
 }
 
 #[tokio::test]
-async fn health_is_public_and_sets_security_headers() {
-    let (status, headers, body) = send(req(Method::GET, "/health").body(Body::empty()).unwrap()).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["status"], "OK");
+async fn health_reports_database_down_and_sets_security_headers() {
+    let (status, headers, body) =
+        send(req(Method::GET, "/health").body(Body::empty()).unwrap()).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(body["status"], "UNAVAILABLE");
+    assert_eq!(body["database"], "down");
     assert_eq!(headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
     assert_eq!(headers[header::X_FRAME_OPTIONS], "DENY");
 }
@@ -76,9 +93,16 @@ async fn protected_routes_require_a_valid_token() {
         (Method::POST, "/api/sync"),
         (Method::GET, "/api/cgm"),
         (Method::DELETE, "/api/cgm/1"),
+        (Method::GET, "/api/insights"),
+        (Method::GET, "/api/account/export"),
+        (Method::DELETE, "/api/account"),
     ] {
         let (status, _, _) = send(req(method.clone(), uri).body(Body::empty()).unwrap()).await;
-        assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri} without token");
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "{method} {uri} without token"
+        );
 
         let (status, _, _) = send(
             req(method.clone(), uri)
@@ -87,7 +111,11 @@ async fn protected_routes_require_a_valid_token() {
                 .unwrap(),
         )
         .await;
-        assert_eq!(status, StatusCode::UNAUTHORIZED, "{method} {uri} with bad token");
+        assert_eq!(
+            status,
+            StatusCode::UNAUTHORIZED,
+            "{method} {uri} with bad token"
+        );
     }
 }
 
@@ -110,13 +138,18 @@ async fn cors_preflight_allows_patch() {
         req(Method::OPTIONS, "/api/cgm/1")
             .header(header::ORIGIN, "http://localhost:5173")
             .header(header::ACCESS_CONTROL_REQUEST_METHOD, "PATCH")
-            .header(header::ACCESS_CONTROL_REQUEST_HEADERS, "authorization,content-type")
+            .header(
+                header::ACCESS_CONTROL_REQUEST_HEADERS,
+                "authorization,content-type",
+            )
             .body(Body::empty())
             .unwrap(),
     )
     .await;
     assert!(status.is_success());
-    let allowed = headers[header::ACCESS_CONTROL_ALLOW_METHODS].to_str().unwrap();
+    let allowed = headers[header::ACCESS_CONTROL_ALLOW_METHODS]
+        .to_str()
+        .unwrap();
     assert!(allowed.contains("PATCH"), "allowed methods: {allowed}");
 }
 
@@ -147,7 +180,10 @@ async fn signup_rejects_unknown_cgm_type_before_creating_user() {
     ))
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body["error"].as_str().unwrap().contains("Unsupported CGM type"));
+    assert!(body["error"]
+        .as_str()
+        .unwrap()
+        .contains("Unsupported CGM type"));
 }
 
 #[tokio::test]
@@ -161,4 +197,46 @@ async fn manual_reading_rejects_implausible_value() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+fn authed_get(uri: &str) -> Request<Body> {
+    req(Method::GET, uri)
+        .header(header::AUTHORIZATION, bearer(1))
+        .body(Body::empty())
+        .unwrap()
+}
+
+#[tokio::test]
+async fn invalid_time_windows_are_rejected() {
+    for uri in [
+        "/api/glucose?from=2026-11-02T00:00:00Z&to=2026-11-01T00:00:00Z",
+        "/api/insights?from=2026-11-02T00:00:00Z&to=2026-11-01T00:00:00Z",
+        "/api/insights?from=2026-01-01T00:00:00Z&to=2026-11-01T00:00:00Z",
+        "/api/glucose?from=not-a-date",
+    ] {
+        let (status, _, _) = send(authed_get(uri)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn openapi_documents_new_endpoints() {
+    let (status, _, body) = send(
+        req(Method::GET, "/api-docs/openapi.json")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    for path in [
+        "/api/insights",
+        "/api/account",
+        "/api/account/export",
+        "/api/glucose",
+    ] {
+        assert!(
+            body["paths"].get(path).is_some(),
+            "{path} missing from OpenAPI"
+        );
+    }
 }

@@ -7,7 +7,7 @@ use crate::DbPool;
 const CGM_CREDENTIAL_MAX_LEN: usize = 512;
 const CGM_REGION_MAX_LEN: usize = 50;
 
-fn to_response(cred: CgmCredential) -> CgmCredentialResponse {
+pub(crate) fn to_response(cred: CgmCredential) -> CgmCredentialResponse {
     CgmCredentialResponse {
         id: cred.id,
         user_id: cred.user_id,
@@ -17,6 +17,9 @@ fn to_response(cred: CgmCredential) -> CgmCredentialResponse {
         is_active: cred.is_active,
         created_at: cred.created_at.to_rfc3339(),
         updated_at: cred.updated_at.to_rfc3339(),
+        last_sync_at: cred.last_sync_at.map(|t| t.to_rfc3339()),
+        last_sync_status: cred.last_sync_status,
+        last_sync_error: cred.last_sync_error,
     }
 }
 
@@ -38,7 +41,9 @@ pub(crate) fn normalize_region(raw: Option<String>) -> Result<Option<String>, Ap
         .filter(|r| !r.is_empty());
     if let Some(r) = &region {
         if r.chars().count() > CGM_REGION_MAX_LEN {
-            return Err(AppError::ValidationError("CGM region is too long".to_string()));
+            return Err(AppError::ValidationError(
+                "CGM region is too long".to_string(),
+            ));
         }
     }
     Ok(region)
@@ -193,7 +198,12 @@ pub async fn delete_credential(
 mod tests {
     use super::*;
 
-    fn build(cgm_type: &str, user: &str, pass: &str, region: Option<&str>) -> Result<NewCgmCredential, AppError> {
+    fn build(
+        cgm_type: &str,
+        user: &str,
+        pass: &str,
+        region: Option<&str>,
+    ) -> Result<NewCgmCredential, AppError> {
         build_new_credential(
             7,
             cgm_type,
@@ -216,7 +226,10 @@ mod tests {
 
     #[test]
     fn blank_region_means_provider_default() {
-        assert_eq!(build("FreeStyle", "u", "p", Some("   ")).unwrap().region, None);
+        assert_eq!(
+            build("FreeStyle", "u", "p", Some("   ")).unwrap().region,
+            None
+        );
         assert_eq!(build("FreeStyle", "u", "p", None).unwrap().region, None);
     }
 
@@ -241,7 +254,10 @@ mod tests {
 
     #[test]
     fn password_is_not_trimmed() {
-        assert_eq!(build("FreeStyle", "u", " p ", None).unwrap().password, " p ");
+        assert_eq!(
+            build("FreeStyle", "u", " p ", None).unwrap().password,
+            " p "
+        );
     }
 
     #[test]
