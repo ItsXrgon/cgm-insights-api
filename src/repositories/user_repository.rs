@@ -36,7 +36,13 @@ pub async fn insert(pool: &DbPool, user: NewUser) -> Result<User, AppError> {
     .bind(user.username)
     .bind(user.password_hash)
     .fetch_one(pool)
-    .await?;
+    .await
+    .map_err(|e| match &e {
+        sqlx::Error::Database(db) if db.is_unique_violation() => {
+            AppError::Conflict("Username already exists".to_string())
+        }
+        _ => AppError::from(e),
+    })?;
 
     Ok(record)
 }

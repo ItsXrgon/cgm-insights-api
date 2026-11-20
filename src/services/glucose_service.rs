@@ -1,6 +1,6 @@
 use crate::dto::{CreateGlucoseReadingRequest, GlucoseReadingResponse};
 use crate::error::AppError;
-use crate::models::{GlucoseReading, NewGlucoseReading};
+use crate::models::{is_plausible_mg_dl, GlucoseReading, NewGlucoseReading, MAX_MG_DL};
 use crate::repositories::glucose_repository;
 use crate::DbPool;
 
@@ -26,10 +26,11 @@ pub async fn create_reading(
     request: CreateGlucoseReadingRequest,
 ) -> Result<GlucoseReadingResponse, AppError> {
     // Validation
-    if request.value_mg_dl < 0.0 || request.value_mg_dl > 1000.0 {
-        return Err(AppError::ConfigError(
-            "Glucose value must be between 0 and 1000 mg/dL".to_string(),
-        ));
+    if !is_plausible_mg_dl(request.value_mg_dl) {
+        return Err(AppError::ValidationError(format!(
+            "Glucose value must be greater than 0 and at most {} mg/dL",
+            MAX_MG_DL
+        )));
     }
 
     let new_reading = NewGlucoseReading {
@@ -47,13 +48,21 @@ pub async fn create_reading(
     Ok(to_response(reading))
 }
 
-/// Get all glucose readings for a user
+pub const DEFAULT_LIMIT: i64 = 100;
+pub const MAX_LIMIT: i64 = 1000;
+
+/// Page size for listing: default 100, clamped to 1..=1000 (Postgres rejects negative LIMIT).
+pub fn clamp_limit(limit: Option<i64>) -> i64 {
+    limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
+}
+
+/// Get the most recent glucose readings for a user
 pub async fn get_readings(
     pool: &DbPool,
     user_id: i32,
     limit: Option<i64>,
 ) -> Result<Vec<GlucoseReadingResponse>, AppError> {
-    let readings = glucose_repository::find_all(pool, user_id, limit).await?;
+    let readings = glucose_repository::find_all(pool, user_id, clamp_limit(limit)).await?;
 
     Ok(readings.into_iter().map(to_response).collect())
 }
@@ -66,16 +75,30 @@ pub async fn get_reading_by_id(
 ) -> Result<GlucoseReadingResponse, AppError> {
     let reading = glucose_repository::find_by_id(pool, user_id, id)
         .await?
-        .ok_or_else(|| AppError::ConfigError("Reading not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound("Reading not found".to_string()))?;
 
     Ok(to_response(reading))
 }
 
 /// Delete a glucose reading
-pub async fn delete_reading(
-    pool: &DbPool,
-    user_id: i32,
-    id: i32,
-) -> Result<bool, AppError> {
-    glucose_repository::delete(pool, user_id, id).await
+pub async fn delete_reading(pool: &DbPool, user_id: i32, id: i32) -> Result<(), AppError> {
+    if glucose_repository::delete(pool, user_id, id).await? {
+        Ok(())
+    } else {
+        Err(AppError::NotFound("Reading not found".to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn limit_defaults_and_clamps() {
+        assert_eq!(clamp_limit(None), DEFAULT_LIMIT);
+        assert_eq!(clamp_limit(Some(50)), 50);
+        assert_eq!(clamp_limit(Some(0)), 1);
+        assert_eq!(clamp_limit(Some(-10)), 1);
+        assert_eq!(clamp_limit(Some(5_000)), MAX_LIMIT);
+    }
 }

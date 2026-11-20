@@ -17,19 +17,22 @@ pub fn routes() -> Router<AppState> {
     responses(
         (status = 200, description = "Sync completed"),
         (status = 401, description = "Unauthorized", body = crate::dto::ErrorResponse),
-        (status = 500, description = "No active credential or sync failed", body = crate::dto::ErrorResponse),
+        (status = 404, description = "No active credential", body = crate::dto::ErrorResponse),
+        (status = 422, description = "CGM platform rejected the credentials", body = crate::dto::ErrorResponse),
+        (status = 429, description = "CGM account temporarily locked", body = crate::dto::ErrorResponse),
+        (status = 502, description = "CGM platform unavailable", body = crate::dto::ErrorResponse),
     ),
 )]
 pub async fn trigger_sync(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    println!("🔄 Manual sync triggered for user {}...", claims.sub);
+    tracing::info!(user_id = claims.sub, "Manual sync triggered");
 
     // Find active credential for the user
     let creds = cgm_repository::find_by_user_id(&state.db, claims.sub).await?;
     let active_cred = creds.into_iter().find(|c| c.is_active).ok_or_else(|| {
-        AppError::ConfigError("No active CGM credential found. Please add one first.".to_string())
+        AppError::NotFound("No active CGM credential found. Please add one first.".to_string())
     })?;
 
     let count = state.sync_service.sync_for_credential(&active_cred).await?;
@@ -39,8 +42,7 @@ pub async fn trigger_sync(
         Json(serde_json::json!({
             "success": true,
             "message": format!("Successfully synced {} readings for {}", count, active_cred.cgm_type),
-            "readings_synced": count,
-            "note": "Background scheduler runs every 5 minutes automatically"
+            "readings_synced": count
         })),
     ))
 }

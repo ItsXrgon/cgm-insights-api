@@ -123,23 +123,13 @@ pub async fn delete_reading(
     Extension(claims): Extension<Claims>,
     Path(id): Path<i32>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    let deleted = glucose_service::delete_reading(&state.db, claims.sub, id).await?;
+    glucose_service::delete_reading(&state.db, claims.sub, id).await?;
 
-    if deleted {
-        Ok((
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "success": true,
-                "message": "Reading deleted successfully"
-            })),
-        ))
-    } else {
-        Ok((
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "success": false,
-                "message": "Reading not found"
-            })),
-        ))
-    }
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "message": "Reading deleted successfully"
+        })),
+    ))
 }

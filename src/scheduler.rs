@@ -3,10 +3,10 @@ use crate::services::SyncService;
 use crate::DbPool;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Start the background scheduler that syncs CGM data for all active credentials at a fixed interval.
-/// Runs an initial sync immediately, then every `interval_secs` seconds (default 1h).
+/// Runs an initial sync immediately, then every `interval_secs` seconds.
 pub async fn start_sync_scheduler(
     sync_service: Arc<SyncService>,
     db: Arc<DbPool>,
@@ -62,29 +62,29 @@ async fn run_all_syncs(sync_service: &SyncService, db: &Arc<DbPool>) {
                     "CGM sync completed"
                 );
             }
+            Err(e) if e.is_cgm_account_issue() => {
+                // Wrong credentials / vendor lockout: the user has to act, not us. Retry next run.
+                warn!(
+                    user_id = cred.user_id,
+                    cgm_type = %cred.cgm_type,
+                    error = %e,
+                    "CGM sync skipped: account needs attention (will retry on next run)"
+                );
+            }
             Err(e) => {
-                let msg = e.to_string();
-                // LibreLink temporarily locks after failed logins; log as warning and retry next cycle
-                if msg.contains("temporarily locked") {
-                    tracing::warn!(
-                        user_id = cred.user_id,
-                        cgm_type = %cred.cgm_type,
-                        error = %e,
-                        "CGM sync skipped: account temporarily locked (will retry on next run)"
-                    );
-                } else {
-                    error!(
-                        user_id = cred.user_id,
-                        cgm_type = %cred.cgm_type,
-                        error = %e,
-                        "CGM sync failed"
-                    );
-                    sentry::configure_scope(|scope| {
+                error!(
+                    user_id = cred.user_id,
+                    cgm_type = %cred.cgm_type,
+                    error = %e,
+                    "CGM sync failed"
+                );
+                sentry::with_scope(
+                    |scope| {
                         scope.set_tag("user_id", cred.user_id.to_string());
                         scope.set_tag("cgm_type", &cred.cgm_type);
-                    });
-                    sentry::capture_error(&e);
-                }
+                    },
+                    || sentry::capture_error(&e),
+                );
             }
         }
     }
