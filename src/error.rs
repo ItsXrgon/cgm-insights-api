@@ -22,6 +22,8 @@ pub enum AppError {
     CgmCredentialsRejected(String),
     /// The CGM platform temporarily locked/throttled the account. Retry later.
     CgmAccountLocked(String),
+    /// The caller is doing something too often (e.g. manual sync within the cooldown)
+    RateLimited(String),
     /// Upstream API communication errors
     ApiError(String),
     /// Database errors
@@ -40,7 +42,9 @@ impl AppError {
             AppError::NotFound(_) => StatusCode::NOT_FOUND,
             AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::CgmCredentialsRejected(_) => StatusCode::UNPROCESSABLE_ENTITY,
-            AppError::CgmAccountLocked(_) => StatusCode::TOO_MANY_REQUESTS,
+            AppError::CgmAccountLocked(_) | AppError::RateLimited(_) => {
+                StatusCode::TOO_MANY_REQUESTS
+            }
             AppError::ApiError(_) => StatusCode::BAD_GATEWAY,
             AppError::DatabaseError(_) | AppError::ConfigError(_) | AppError::InternalError(_) => {
                 StatusCode::INTERNAL_SERVER_ERROR
@@ -85,7 +89,8 @@ impl IntoResponse for AppError {
             | AppError::NotFound(msg)
             | AppError::Conflict(msg)
             | AppError::CgmCredentialsRejected(msg)
-            | AppError::CgmAccountLocked(msg) => msg.clone(),
+            | AppError::CgmAccountLocked(msg)
+            | AppError::RateLimited(msg) => msg.clone(),
             AppError::ApiError(msg) => {
                 sentry::capture_error(&self);
                 msg.clone()
@@ -121,6 +126,7 @@ impl std::fmt::Display for AppError {
                 write!(f, "CGM credentials rejected: {}", msg)
             }
             AppError::CgmAccountLocked(msg) => write!(f, "CGM account locked: {}", msg),
+            AppError::RateLimited(msg) => write!(f, "Rate limited: {}", msg),
             AppError::ApiError(msg) => write!(f, "API error: {}", msg),
             AppError::DatabaseError(msg) => write!(f, "Database error: {}", msg),
             AppError::ConfigError(msg) => write!(f, "Configuration error: {}", msg),
@@ -147,7 +153,10 @@ mod tests {
     async fn client_errors_expose_message() {
         let cases = [
             (AppError::AuthError("a".into()), StatusCode::UNAUTHORIZED),
-            (AppError::ValidationError("v".into()), StatusCode::BAD_REQUEST),
+            (
+                AppError::ValidationError("v".into()),
+                StatusCode::BAD_REQUEST,
+            ),
             (AppError::NotFound("n".into()), StatusCode::NOT_FOUND),
             (AppError::Conflict("c".into()), StatusCode::CONFLICT),
             (
@@ -156,6 +165,10 @@ mod tests {
             ),
             (
                 AppError::CgmAccountLocked("l".into()),
+                StatusCode::TOO_MANY_REQUESTS,
+            ),
+            (
+                AppError::RateLimited("r".into()),
                 StatusCode::TOO_MANY_REQUESTS,
             ),
         ];

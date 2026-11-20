@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 /// Signup request payload
 #[derive(Debug, Deserialize, ToSchema)]
@@ -60,10 +60,30 @@ pub struct CreateCgmCredentialRequest {
     pub is_active: bool,
 }
 
-/// Query parameters for glucose readings
+/// Query for listing readings: `[from, to)`, newest first
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct GlucoseListQuery {
+    /// Inclusive lower bound, RFC 3339 (e.g. `2026-11-01T00:00:00Z`)
+    pub from: Option<DateTime<Utc>>,
+    /// Exclusive upper bound, RFC 3339; use `nextTo` from the previous page to paginate
+    pub to: Option<DateTime<Utc>>,
+    /// Page size, 1–1000 (default 100)
+    pub limit: Option<i64>,
+}
+
+/// Window for insights; defaults to the 14 days before `to` (default now), max 90 days
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct InsightsQuery {
+    /// Inclusive lower bound, RFC 3339
+    pub from: Option<DateTime<Utc>>,
+    /// Exclusive upper bound, RFC 3339
+    pub to: Option<DateTime<Utc>>,
+}
+
+/// Confirm account deletion with the account password
 #[derive(Debug, Deserialize, ToSchema)]
-pub struct GlucoseQueryParams {
-    pub start_time: Option<i64>,
-    pub end_time: Option<i64>,
-    pub limit: Option<u32>,
+pub struct DeleteAccountRequest {
+    pub password: String,
 }

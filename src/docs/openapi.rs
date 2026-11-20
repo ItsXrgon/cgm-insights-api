@@ -4,9 +4,11 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::Config;
 
 use crate::dto::{
-    ApiInfoResponse, ApiMessageResponse, AuthDataResponse, AuthResponse, CgmCredentialResponse,
-    CreateCgmCredentialRequest, CreateGlucoseReadingRequest, ErrorResponse, GlucoseReadingResponse,
-    HealthResponse, LoginRequest, SignupRequest, UpdateCgmCredentialRequest, UserResponse,
+    AccountExport, ApiInfoResponse, ApiMessageResponse, AuthResponse, CgmCredentialResponse,
+    CreateCgmCredentialRequest, CreateGlucoseReadingRequest, DeleteAccountRequest, ErrorResponse,
+    GlucoseListQuery, GlucoseListResponse, GlucoseReadingResponse, HealthResponse, InsightsQuery,
+    InsightsResponse, LoginRequest, SignupRequest, SyncResponse, TimeInRanges,
+    UpdateCgmCredentialRequest, UserResponse,
 };
 
 #[derive(OpenApi)]
@@ -32,6 +34,9 @@ use crate::dto::{
         crate::handlers::cgm::update_credential,
         crate::handlers::cgm::set_active,
         crate::handlers::cgm::delete_credential,
+        crate::handlers::insights::get_insights,
+        crate::handlers::account::export_account,
+        crate::handlers::account::delete_account,
     ),
     components(schemas(
         HealthResponse,
@@ -39,14 +44,20 @@ use crate::dto::{
         SignupRequest,
         LoginRequest,
         AuthResponse,
-        AuthDataResponse,
         UserResponse,
         CreateGlucoseReadingRequest,
-        crate::handlers::glucose::ListQuery,
+        GlucoseListQuery,
         GlucoseReadingResponse,
+        GlucoseListResponse,
         CgmCredentialResponse,
         CreateCgmCredentialRequest,
         UpdateCgmCredentialRequest,
+        SyncResponse,
+        InsightsQuery,
+        InsightsResponse,
+        TimeInRanges,
+        AccountExport,
+        DeleteAccountRequest,
         ApiMessageResponse,
         ErrorResponse,
     )),
@@ -56,6 +67,7 @@ use crate::dto::{
         (name = "Glucose", description = "Glucose readings"),
         (name = "Sync", description = "Manual sync trigger"),
         (name = "CGM", description = "CGM credentials management"),
+        (name = "Account", description = "Account export and deletion"),
     ),
     modifiers(&SecurityAddon),
 )]

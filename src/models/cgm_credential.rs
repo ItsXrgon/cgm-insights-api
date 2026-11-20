@@ -64,6 +64,35 @@ pub struct CgmCredential {
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// When the latest sync attempt started (also the sync cooldown anchor)
+    pub last_sync_at: Option<DateTime<Utc>>,
+    /// Outcome of the latest sync attempt, see [`SyncStatus`]
+    pub last_sync_status: Option<String>,
+    /// User-facing reason when the latest sync did not succeed
+    pub last_sync_error: Option<String>,
+}
+
+/// Outcome of a sync attempt, stored in `cgm_credentials.last_sync_status`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncStatus {
+    Ok,
+    /// Wrong password, region, or terms to accept in the vendor app
+    CredentialsRejected,
+    /// Vendor temporarily locked the account
+    AccountLocked,
+    /// Anything else (vendor down, our bug); retried on the next run
+    Failed,
+}
+
+impl SyncStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SyncStatus::Ok => "ok",
+            SyncStatus::CredentialsRejected => "credentials_rejected",
+            SyncStatus::AccountLocked => "account_locked",
+            SyncStatus::Failed => "failed",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

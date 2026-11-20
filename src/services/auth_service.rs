@@ -1,3 +1,4 @@
+use crate::DbPool;
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
@@ -5,13 +6,11 @@ use argon2::{
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use crate::DbPool;
-use std::env;
 
 use crate::dto::{AuthResponse, LoginRequest, SignupRequest, UserResponse};
 use crate::error::AppError;
 use crate::models::{NewUser, User};
-use crate::repositories::{cgm_repository, user_repository};
+use crate::repositories::user_repository;
 use crate::services::cgm_service;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,52 +39,29 @@ pub fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
         .is_ok())
 }
 
-pub fn generate_token(user: &User) -> Result<String, AppError> {
-    let secret = jwt_secret()?;
-    let expiration = Utc::now() + Duration::days(7);
-
+pub fn generate_token(user: &User, secret: &str) -> Result<String, AppError> {
     let claims = Claims {
         sub: user.id,
         username: user.username.clone(),
-        exp: expiration.timestamp(),
+        exp: (Utc::now() + Duration::days(7)).timestamp(),
     };
 
-    let token = encode(
+    encode(
         &Header::default(),
         &claims,
         &EncodingKey::from_secret(secret.as_bytes()),
     )
-    .map_err(|e| AppError::InternalError(anyhow::anyhow!("Token generation failed: {}", e)))?;
-
-    Ok(token)
+    .map_err(|e| AppError::InternalError(anyhow::anyhow!("Token generation failed: {}", e)))
 }
 
-pub fn validate_token(token: &str) -> Result<Claims, AppError> {
-    let secret = jwt_secret()?;
-
-    let token_data = decode::<Claims>(
+pub fn validate_token(token: &str, secret: &str) -> Result<Claims, AppError> {
+    decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
         &Validation::default(),
     )
-    .map_err(|_| AppError::AuthError("Invalid or expired token".to_string()))?;
-
-    Ok(token_data.claims)
-}
-
-/// Returns JWT_SECRET; in production it must be set and not the default placeholder.
-fn jwt_secret() -> Result<String, AppError> {
-    let secret = env::var("JWT_SECRET").unwrap_or_else(|_| "secret".to_string());
-    let is_production = env::var("APP_ENV")
-        .unwrap_or_else(|_| "development".to_string())
-        .to_lowercase()
-        == "production";
-    if is_production && (secret.is_empty() || secret == "secret") {
-        return Err(AppError::ConfigError(
-            "JWT_SECRET must be set to a strong secret in production".to_string(),
-        ));
-    }
-    Ok(secret)
+    .map(|data| data.claims)
+    .map_err(|_| AppError::AuthError("Invalid or expired token".to_string()))
 }
 
 const USERNAME_MIN_LEN: usize = 3;
@@ -129,13 +105,13 @@ fn validate_password(s: &str) -> Result<(), AppError> {
 
 pub async fn signup(
     pool: &DbPool,
+    jwt_secret: &str,
     request: SignupRequest,
 ) -> Result<AuthResponse, AppError> {
     validate_username(&request.username)?;
     validate_password(&request.password)?;
-    // Validate the CGM credential before creating the user so bad input leaves nothing behind.
-    // user_id is filled in once the user row exists.
-    let mut new_cgm = cgm_service::build_new_credential(
+    // user_id is assigned by the insert
+    let new_cgm = cgm_service::build_new_credential(
         0,
         &request.cgm_type,
         request.cgm_username,
@@ -152,22 +128,24 @@ pub async fn signup(
     }
 
     let password_hash = hash_password(&request.password)?;
-    let user = user_repository::insert(
+    let user = user_repository::insert_with_credential(
         pool,
         NewUser {
             username: request.username,
             password_hash,
         },
+        new_cgm,
     )
     .await?;
 
-    new_cgm.user_id = user.id;
-    cgm_repository::insert(pool, new_cgm).await?;
-
-    auth_response(user)
+    auth_response(user, jwt_secret)
 }
 
-pub async fn login(pool: &DbPool, request: LoginRequest) -> Result<AuthResponse, AppError> {
+pub async fn login(
+    pool: &DbPool,
+    jwt_secret: &str,
+    request: LoginRequest,
+) -> Result<AuthResponse, AppError> {
     validate_username(&request.username)?;
     validate_password(&request.password)?;
 
@@ -181,11 +159,11 @@ pub async fn login(pool: &DbPool, request: LoginRequest) -> Result<AuthResponse,
         ));
     }
 
-    auth_response(user)
+    auth_response(user, jwt_secret)
 }
 
-fn auth_response(user: User) -> Result<AuthResponse, AppError> {
-    let token = generate_token(&user)?;
+fn auth_response(user: User, jwt_secret: &str) -> Result<AuthResponse, AppError> {
+    let token = generate_token(&user, jwt_secret)?;
     Ok(AuthResponse {
         token,
         user: UserResponse {
@@ -199,6 +177,8 @@ fn auth_response(user: User) -> Result<AuthResponse, AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const SECRET: &str = "test-secret-test-secret-test-secret";
 
     fn user(id: i32) -> User {
         User {
@@ -225,8 +205,8 @@ mod tests {
 
     #[test]
     fn token_round_trip() {
-        let token = generate_token(&user(42)).unwrap();
-        let claims = validate_token(&token).unwrap();
+        let token = generate_token(&user(42), SECRET).unwrap();
+        let claims = validate_token(&token, SECRET).unwrap();
         assert_eq!(claims.sub, 42);
         assert_eq!(claims.username, "alice");
         assert!(claims.exp > Utc::now().timestamp());
@@ -234,14 +214,17 @@ mod tests {
 
     #[test]
     fn rejects_tampered_and_garbage_tokens() {
-        let token = generate_token(&user(1)).unwrap();
+        let token = generate_token(&user(1), SECRET).unwrap();
         // Flip a character in the signature segment.
         let (head, sig) = token.rsplit_once('.').unwrap();
         let mut sig: Vec<char> = sig.chars().collect();
         sig[0] = if sig[0] == 'A' { 'B' } else { 'A' };
         let tampered = format!("{}.{}", head, sig.into_iter().collect::<String>());
-        assert!(matches!(validate_token(&tampered), Err(AppError::AuthError(_))));
-        assert!(validate_token("garbage").is_err());
+        assert!(matches!(
+            validate_token(&tampered, SECRET),
+            Err(AppError::AuthError(_))
+        ));
+        assert!(validate_token("garbage", SECRET).is_err());
     }
 
     #[test]
@@ -251,14 +234,13 @@ mod tests {
             username: "alice".into(),
             exp: (Utc::now() - Duration::hours(1)).timestamp(),
         };
-        let secret = jwt_secret().unwrap();
         let token = encode(
             &Header::default(),
             &expired,
-            &EncodingKey::from_secret(secret.as_bytes()),
+            &EncodingKey::from_secret(SECRET.as_bytes()),
         )
         .unwrap();
-        assert!(validate_token(&token).is_err());
+        assert!(validate_token(&token, SECRET).is_err());
 
         let foreign = encode(
             &Header::default(),
@@ -269,7 +251,7 @@ mod tests {
             &EncodingKey::from_secret(b"some-other-secret"),
         )
         .unwrap();
-        assert!(validate_token(&foreign).is_err());
+        assert!(validate_token(&foreign, SECRET).is_err());
     }
 
     #[test]

@@ -25,7 +25,7 @@ pub async fn api_info() -> Json<ApiInfoResponse> {
             "POST /api/auth/signup",
             "POST /api/auth/login",
             "POST /api/glucose",
-            "GET /api/glucose?limit=100",
+            "GET /api/glucose?from=&to=&limit=100",
             "GET /api/glucose/:id",
             "DELETE /api/glucose/:id",
             "POST /api/sync",
@@ -34,6 +34,9 @@ pub async fn api_info() -> Json<ApiInfoResponse> {
             "PATCH /api/cgm/:id",
             "POST /api/cgm/:id/active",
             "DELETE /api/cgm/:id",
+            "GET /api/insights?from=&to=",
+            "GET /api/account/export",
+            "DELETE /api/account",
         ],
     })
 }

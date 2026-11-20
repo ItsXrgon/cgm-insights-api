@@ -1,4 +1,4 @@
-use crate::dto::{AuthDataResponse, LoginRequest, SignupRequest};
+use crate::dto::{AuthResponse, DataResponse, LoginRequest, SignupRequest};
 use crate::error::AppError;
 use crate::server::AppState;
 use crate::services::auth_service;
@@ -17,23 +17,17 @@ pub fn routes() -> Router<AppState> {
     tag = "Auth",
     request_body = SignupRequest,
     responses(
-        (status = 201, description = "User created", body = AuthDataResponse),
-        (status = 400, description = "Bad request", body = crate::dto::ErrorResponse),
+        (status = 201, description = "User created", body = DataResponse<AuthResponse>),
+        (status = 400, description = "Invalid input", body = crate::dto::ErrorResponse),
+        (status = 409, description = "Username taken", body = crate::dto::ErrorResponse),
     ),
 )]
 pub async fn signup(
     State(state): State<AppState>,
     Json(request): Json<SignupRequest>,
-) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    let auth_data = auth_service::signup(&state.db, request).await?;
-
-    Ok((
-        StatusCode::CREATED,
-        Json(serde_json::json!({
-            "success": true,
-            "data": auth_data
-        })),
-    ))
+) -> Result<(StatusCode, Json<DataResponse<AuthResponse>>), AppError> {
+    let auth = auth_service::signup(&state.db, &state.config.jwt_secret, request).await?;
+    Ok((StatusCode::CREATED, Json(DataResponse::new(auth))))
 }
 
 /// Authenticate a user and return JWT
@@ -43,18 +37,14 @@ pub async fn signup(
     tag = "Auth",
     request_body = LoginRequest,
     responses(
-        (status = 200, description = "Login success", body = AuthDataResponse),
+        (status = 200, description = "Login success", body = DataResponse<AuthResponse>),
         (status = 401, description = "Invalid credentials", body = crate::dto::ErrorResponse),
     ),
 )]
 pub async fn login(
     State(state): State<AppState>,
     Json(request): Json<LoginRequest>,
-) -> Result<Json<serde_json::Value>, AppError> {
-    let auth_data = auth_service::login(&state.db, request).await?;
-
-    Ok(Json(serde_json::json!({
-        "success": true,
-        "data": auth_data
-    })))
+) -> Result<Json<DataResponse<AuthResponse>>, AppError> {
+    let auth = auth_service::login(&state.db, &state.config.jwt_secret, request).await?;
+    Ok(Json(DataResponse::new(auth)))
 }

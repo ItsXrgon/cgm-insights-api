@@ -7,16 +7,17 @@ pub mod config;
 pub mod db;
 
 pub use db::DbPool;
+pub mod docs;
 pub mod dto;
 pub mod error;
 pub mod handlers;
 pub mod middleware;
 pub mod models;
-pub mod docs;
 pub mod repositories;
 pub mod scheduler;
 pub mod server;
 pub mod services;
+pub mod telemetry;
 
 pub use config::Config;
 pub use error::AppError;

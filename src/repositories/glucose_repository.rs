@@ -1,43 +1,9 @@
 use crate::error::AppError;
 use crate::models::{GlucoseReading, NewGlucoseReading};
 use crate::DbPool;
+use chrono::{DateTime, Utc};
 use sqlx::{Postgres, QueryBuilder};
 use tracing::instrument;
-
-/// Initialize the glucose_readings table if it doesn't exist
-#[instrument(skip(pool))]
-pub async fn init_table(pool: &DbPool) -> Result<(), AppError> {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS glucose_readings (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-            value_mg_dl DOUBLE PRECISION NOT NULL,
-            timestamp TIMESTAMPTZ NOT NULL,
-            is_high BOOLEAN NOT NULL DEFAULT FALSE,
-            is_low BOOLEAN NOT NULL DEFAULT FALSE,
-            trend VARCHAR(50),
-            device_id VARCHAR(255),
-            notes TEXT,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            CONSTRAINT glucose_readings_user_timestamp_unique UNIQUE (user_id, timestamp)
-        )
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    sqlx::query(
-        r#"
-        CREATE INDEX IF NOT EXISTS idx_glucose_readings_timestamp 
-        ON glucose_readings(timestamp DESC)
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    Ok(())
-}
 
 /// Insert a new glucose reading (upsert: on conflict overrides existing row)
 #[instrument(skip(pool))]
@@ -124,11 +90,13 @@ pub async fn insert_many(pool: &DbPool, readings: Vec<NewGlucoseReading>) -> Res
     Ok(affected)
 }
 
-/// Most recent glucose readings for a user, newest first
+/// Readings in `[from, to)` (either bound optional), newest first
 #[instrument(skip(pool))]
-pub async fn find_all(
+pub async fn find_range(
     pool: &DbPool,
     user_id: i32,
+    from: Option<DateTime<Utc>>,
+    to: Option<DateTime<Utc>>,
     limit: i64,
 ) -> Result<Vec<GlucoseReading>, AppError> {
     let records = sqlx::query_as::<_, GlucoseReading>(
@@ -136,12 +104,60 @@ pub async fn find_all(
         SELECT id, user_id, value_mg_dl, timestamp, is_high, is_low, trend, device_id, notes, created_at
         FROM glucose_readings
         WHERE user_id = $1
+          AND ($2::TIMESTAMPTZ IS NULL OR timestamp >= $2)
+          AND ($3::TIMESTAMPTZ IS NULL OR timestamp < $3)
         ORDER BY timestamp DESC
-        LIMIT $2
+        LIMIT $4
         "#,
     )
     .bind(user_id)
+    .bind(from)
+    .bind(to)
     .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(records)
+}
+
+/// Just the values in `[from, to)`, for statistics
+#[instrument(skip(pool))]
+pub async fn values_in_range(
+    pool: &DbPool,
+    user_id: i32,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+) -> Result<Vec<f64>, AppError> {
+    let values = sqlx::query_scalar::<_, f64>(
+        r#"
+        SELECT value_mg_dl FROM glucose_readings
+        WHERE user_id = $1 AND timestamp >= $2 AND timestamp < $3
+        "#,
+    )
+    .bind(user_id)
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(values)
+}
+
+/// Every reading of a user, oldest first (account export)
+#[instrument(skip(pool))]
+pub async fn find_all_for_user(
+    pool: &DbPool,
+    user_id: i32,
+) -> Result<Vec<GlucoseReading>, AppError> {
+    let records = sqlx::query_as::<_, GlucoseReading>(
+        r#"
+        SELECT id, user_id, value_mg_dl, timestamp, is_high, is_low, trend, device_id, notes, created_at
+        FROM glucose_readings
+        WHERE user_id = $1
+        ORDER BY timestamp
+        "#,
+    )
+    .bind(user_id)
     .fetch_all(pool)
     .await?;
 
@@ -190,7 +206,7 @@ pub async fn delete(pool: &DbPool, user_id: i32, id: i32) -> Result<bool, AppErr
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{TimeZone, Utc};
+    use chrono::TimeZone;
 
     fn reading(user_id: i32, secs: i64, value: f64) -> NewGlucoseReading {
         NewGlucoseReading {

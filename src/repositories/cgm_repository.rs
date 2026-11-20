@@ -3,28 +3,12 @@ use crate::models::{CgmCredential, NewCgmCredential};
 use crate::DbPool;
 use tracing::instrument;
 
-/// Initialize the cgm_credentials table if it doesn't exist
-#[instrument(skip(pool))]
-pub async fn init_table(pool: &DbPool) -> Result<(), AppError> {
-    sqlx::query(
-        r#"
-        CREATE TABLE IF NOT EXISTS cgm_credentials (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            cgm_type VARCHAR(50) NOT NULL,
-            username VARCHAR(255) NOT NULL,
-            password VARCHAR(255) NOT NULL,
-            region VARCHAR(50),
-            is_active BOOLEAN NOT NULL DEFAULT FALSE,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        "#,
-    )
-    .execute(pool)
-    .await?;
-
-    Ok(())
+/// Columns mapped by `CgmCredential` (a macro so it can be spliced into `concat!`).
+macro_rules! columns {
+    () => {
+        "id, user_id, cgm_type, username, password, region, is_active, created_at, updated_at, \
+         last_sync_at, last_sync_status, last_sync_error"
+    };
 }
 
 /// Insert a new CGM credential
@@ -33,13 +17,11 @@ pub async fn insert(
     pool: &DbPool,
     credential: NewCgmCredential,
 ) -> Result<CgmCredential, AppError> {
-    let record = sqlx::query_as::<_, CgmCredential>(
-        r#"
-        INSERT INTO cgm_credentials (user_id, cgm_type, username, password, region, is_active)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, user_id, cgm_type, username, password, region, is_active, created_at, updated_at
-        "#,
-    )
+    let record = sqlx::query_as::<_, CgmCredential>(concat!(
+        "INSERT INTO cgm_credentials (user_id, cgm_type, username, password, region, is_active) \
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING ",
+        columns!()
+    ))
     .bind(credential.user_id)
     .bind(credential.cgm_type)
     .bind(credential.username)
@@ -55,33 +37,43 @@ pub async fn insert(
 /// Find active CGM credentials for all users
 #[instrument(skip(pool))]
 pub async fn find_all_active(pool: &DbPool) -> Result<Vec<CgmCredential>, AppError> {
-    let records = sqlx::query_as::<_, CgmCredential>(
-        r#"
-        SELECT id, user_id, cgm_type, username, password, region, is_active, created_at, updated_at
-        FROM cgm_credentials
-        WHERE is_active = TRUE
-        "#,
-    )
+    let records = sqlx::query_as::<_, CgmCredential>(concat!(
+        "SELECT ",
+        columns!(),
+        " FROM cgm_credentials WHERE is_active = TRUE ORDER BY id"
+    ))
     .fetch_all(pool)
     .await?;
 
     Ok(records)
 }
 
-/// Find all credentials for a specific user
+/// The user's active credential, if any
 #[instrument(skip(pool))]
-pub async fn find_by_user_id(
+pub async fn find_active_for_user(
     pool: &DbPool,
     user_id: i32,
-) -> Result<Vec<CgmCredential>, AppError> {
-    let records = sqlx::query_as::<_, CgmCredential>(
-        r#"
-        SELECT id, user_id, cgm_type, username, password, region, is_active, created_at, updated_at
-        FROM cgm_credentials
-        WHERE user_id = $1
-        ORDER BY created_at DESC
-        "#,
-    )
+) -> Result<Option<CgmCredential>, AppError> {
+    let record = sqlx::query_as::<_, CgmCredential>(concat!(
+        "SELECT ",
+        columns!(),
+        " FROM cgm_credentials WHERE user_id = $1 AND is_active = TRUE"
+    ))
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(record)
+}
+
+/// Find all credentials for a specific user
+#[instrument(skip(pool))]
+pub async fn find_by_user_id(pool: &DbPool, user_id: i32) -> Result<Vec<CgmCredential>, AppError> {
+    let records = sqlx::query_as::<_, CgmCredential>(concat!(
+        "SELECT ",
+        columns!(),
+        " FROM cgm_credentials WHERE user_id = $1 ORDER BY created_at DESC"
+    ))
     .bind(user_id)
     .fetch_all(pool)
     .await?;
@@ -92,13 +84,11 @@ pub async fn find_by_user_id(
 /// Find credential by ID
 #[instrument(skip(pool))]
 pub async fn find_by_id(pool: &DbPool, id: i32) -> Result<Option<CgmCredential>, AppError> {
-    let record = sqlx::query_as::<_, CgmCredential>(
-        r#"
-        SELECT id, user_id, cgm_type, username, password, region, is_active, created_at, updated_at
-        FROM cgm_credentials
-        WHERE id = $1
-        "#,
-    )
+    let record = sqlx::query_as::<_, CgmCredential>(concat!(
+        "SELECT ",
+        columns!(),
+        " FROM cgm_credentials WHERE id = $1"
+    ))
     .bind(id)
     .fetch_optional(pool)
     .await?;
@@ -106,7 +96,8 @@ pub async fn find_by_id(pool: &DbPool, id: i32) -> Result<Option<CgmCredential>,
     Ok(record)
 }
 
-/// Update a CGM credential
+/// Update a CGM credential. Changing what we log in with clears the previous sync
+/// outcome (and the cooldown), so a fixed password can be synced immediately.
 #[instrument(skip(pool, username, password))]
 pub async fn update(
     pool: &DbPool,
@@ -117,20 +108,27 @@ pub async fn update(
     region: Option<String>,
     is_active: Option<bool>,
 ) -> Result<CgmCredential, AppError> {
-    let record = sqlx::query_as::<_, CgmCredential>(
+    let record = sqlx::query_as::<_, CgmCredential>(concat!(
         r#"
+        WITH login_changed AS (
+            SELECT ($1::VARCHAR IS NOT NULL OR $2::VARCHAR IS NOT NULL
+                    OR $3::VARCHAR IS NOT NULL OR $4::VARCHAR IS NOT NULL) AS yes
+        )
         UPDATE cgm_credentials
-        SET 
+        SET
             cgm_type = COALESCE($1, cgm_type),
             username = COALESCE($2, username),
             password = COALESCE($3, password),
             region = COALESCE($4, region),
             is_active = COALESCE($5, is_active),
+            last_sync_at = CASE WHEN (SELECT yes FROM login_changed) THEN NULL ELSE last_sync_at END,
+            last_sync_status = CASE WHEN (SELECT yes FROM login_changed) THEN NULL ELSE last_sync_status END,
+            last_sync_error = CASE WHEN (SELECT yes FROM login_changed) THEN NULL ELSE last_sync_error END,
             updated_at = NOW()
         WHERE id = $6
-        RETURNING id, user_id, cgm_type, username, password, region, is_active, created_at, updated_at
-        "#,
-    )
+        RETURNING "#,
+        columns!()
+    ))
     .bind(cgm_type)
     .bind(username)
     .bind(password)
@@ -143,34 +141,30 @@ pub async fn update(
     Ok(record)
 }
 
-/// Make `id` the user's only active credential, in a single statement so concurrent
-/// requests can never leave two active rows. Returns `None` if the user doesn't own `id`.
+/// Make `id` the user's only active credential in a single statement. The
+/// `cgm_credentials_one_active_per_user` constraint is checked at the end of the
+/// statement, so flipping the old row off and the new one on together is allowed.
+/// Returns `None` if the user doesn't own `id`.
 #[instrument(skip(pool))]
 pub async fn activate(
     pool: &DbPool,
     user_id: i32,
     id: i32,
 ) -> Result<Option<CgmCredential>, AppError> {
-    let record = sqlx::query_as::<_, CgmCredential>(
+    let record = sqlx::query_as::<_, CgmCredential>(concat!(
         r#"
-        WITH target AS (
-            SELECT id FROM cgm_credentials WHERE id = $2 AND user_id = $1
-        ),
-        updated AS (
-            -- Touch every row of the user (not just currently-active ones) so a concurrent
-            -- activation re-checks each locked row and the last writer wins cleanly.
+        WITH updated AS (
             UPDATE cgm_credentials c
             SET is_active = (c.id = $2),
                 updated_at = CASE WHEN c.is_active = (c.id = $2) THEN c.updated_at ELSE NOW() END
             WHERE c.user_id = $1
-              AND EXISTS (SELECT 1 FROM target)
-            RETURNING c.id, c.user_id, c.cgm_type, c.username, c.password, c.region, c.is_active, c.created_at, c.updated_at
+              AND EXISTS (SELECT 1 FROM cgm_credentials t WHERE t.id = $2 AND t.user_id = $1)
+            RETURNING c.*
         )
-        SELECT id, user_id, cgm_type, username, password, region, is_active, created_at, updated_at
-        FROM updated
-        WHERE id = $2
-        "#,
-    )
+        SELECT "#,
+        columns!(),
+        " FROM updated WHERE id = $2"
+    ))
     .bind(user_id)
     .bind(id)
     .fetch_optional(pool)
@@ -179,19 +173,56 @@ pub async fn activate(
     Ok(record)
 }
 
-/// Delete a CGM credential owned by `user_id`
+/// Atomically claim a sync slot: stamps `last_sync_at` unless the previous attempt
+/// started less than `cooldown_secs` ago. Returns whether the caller may sync.
+/// Works across processes (API and worker), unlike an in-memory limiter.
 #[instrument(skip(pool))]
-pub async fn delete(pool: &DbPool, user_id: i32, id: i32) -> Result<bool, AppError> {
-    let result = sqlx::query(
+pub async fn claim_sync(pool: &DbPool, id: i32, cooldown_secs: u64) -> Result<bool, AppError> {
+    let claimed = sqlx::query_scalar::<_, i32>(
         r#"
-        DELETE FROM cgm_credentials
-        WHERE id = $1 AND user_id = $2
+        UPDATE cgm_credentials
+        SET last_sync_at = NOW()
+        WHERE id = $1
+          AND (last_sync_at IS NULL OR last_sync_at <= NOW() - make_interval(secs => $2))
+        RETURNING id
         "#,
     )
     .bind(id)
-    .bind(user_id)
+    .bind(cooldown_secs as f64)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(claimed.is_some())
+}
+
+/// Store the outcome of the latest sync attempt
+#[instrument(skip(pool, error))]
+pub async fn record_sync_result(
+    pool: &DbPool,
+    id: i32,
+    status: &str,
+    error: Option<&str>,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE cgm_credentials SET last_sync_status = $2, last_sync_error = $3 WHERE id = $1",
+    )
+    .bind(id)
+    .bind(status)
+    .bind(error)
     .execute(pool)
     .await?;
+
+    Ok(())
+}
+
+/// Delete a CGM credential owned by `user_id`
+#[instrument(skip(pool))]
+pub async fn delete(pool: &DbPool, user_id: i32, id: i32) -> Result<bool, AppError> {
+    let result = sqlx::query("DELETE FROM cgm_credentials WHERE id = $1 AND user_id = $2")
+        .bind(id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
 
     Ok(result.rows_affected() > 0)
 }
