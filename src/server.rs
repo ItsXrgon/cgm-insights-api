@@ -11,7 +11,7 @@ use std::time::Duration;
 use tower::ServiceBuilder;
 use tower_governor::{
     governor::GovernorConfigBuilder,
-    key_extractor::{GlobalKeyExtractor, SmartIpKeyExtractor},
+    key_extractor::SmartIpKeyExtractor,
     GovernorLayer,
 };
 use tower_http::compression::CompressionLayer;
@@ -26,14 +26,18 @@ pub struct AppState {
     pub sync_service: Arc<SyncService>,
 }
 
+/// Build the router. Serve it with `into_make_service_with_connect_info::<SocketAddr>()`
+/// so rate limiting can fall back to the peer IP when no proxy header is present.
 pub fn create_app(db: Arc<DbPool>, sync_service: Arc<SyncService>, sentry_enabled: bool) -> Router {
     let state = AppState { db, sync_service };
 
     let (h1, h2, h3, h4) = security_headers_layer();
 
+    // Per client IP (X-Forwarded-For behind Fly's proxy, else the peer address), so one
+    // busy client can't exhaust the limit for everyone.
     let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
-            .key_extractor(GlobalKeyExtractor)
+            .key_extractor(SmartIpKeyExtractor)
             .per_second(2)
             .burst_size(5)
             .finish()
