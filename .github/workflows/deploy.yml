@@ -1,4 +1,4 @@
-# Deploy to Fly.io on push to main
+# Test, then deploy to Fly.io on push to main
 name: Deploy
 
 on:
@@ -11,8 +11,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test --locked
+
   deploy:
     name: Deploy to Fly.io
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
