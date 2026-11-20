@@ -1,35 +1,62 @@
-# Test, then deploy to Fly.io on push to main
-name: Deploy
+# Check every PR; on push to main, check then deploy to Fly.io
+name: CI
 
 on:
   push:
     branches: [main, master]
+  pull_request:
 
-# Cancel in-progress deploy when a newer commit is pushed to the same branch
+# Cancel in-progress runs when a newer commit is pushed to the same branch
 concurrency:
-  group: deploy-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Test
+  check:
+    name: Lint and test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cgm_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/cgm_test
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Run tests
-        run: cargo test --locked
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      # --include-ignored runs the Postgres-backed tests in tests/db.rs
+      - name: Test
+        run: cargo test --locked -- --include-ignored
 
   deploy:
     name: Deploy to Fly.io
-    needs: test
+    needs: check
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
