@@ -175,7 +175,7 @@ pub async fn activate(
 
 /// Atomically claim a sync slot: stamps `last_sync_at` unless the previous attempt
 /// started less than `cooldown_secs` ago. Returns whether the caller may sync.
-/// Works across processes (API and worker), unlike an in-memory limiter.
+/// Works across processes and instances, unlike an in-memory limiter.
 #[instrument(skip(pool))]
 pub async fn claim_sync(pool: &DbPool, id: i32, cooldown_secs: u64) -> Result<bool, AppError> {
     let claimed = sqlx::query_scalar::<_, i32>(

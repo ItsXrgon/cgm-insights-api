@@ -7,7 +7,8 @@ use std::time::Duration;
 use tracing::{error, info, warn};
 
 /// Sync all active credentials now and then every `interval_secs`, until `shutdown`
-/// resolves. A run in progress always finishes; shutdown is only checked between runs.
+/// resolves. Runs as a background task of the API process. A run in progress always
+/// finishes; shutdown is only checked between runs.
 pub async fn run_sync_scheduler(
     sync_service: Arc<SyncService>,
     db: Arc<DbPool>,

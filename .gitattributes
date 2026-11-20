@@ -1,0 +1,2 @@
+# sqlx checksums migrations byte-for-byte: keep them LF on every OS
+*.sql text eol=lf

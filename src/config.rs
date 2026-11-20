@@ -22,7 +22,7 @@ pub struct Config {
     pub sentry_dsn: Option<String>,
     pub sentry_release: Option<String>,
     pub sentry_traces_sample_rate: f32,
-    /// Worker sync interval in seconds (default 900 = 15 min)
+    /// Background sync interval in seconds (default 3600 = 1 hour)
     pub sync_interval_secs: u64,
     /// Minimum seconds between sync attempts for one credential (default 60)
     pub sync_cooldown_secs: u64,
@@ -90,7 +90,7 @@ impl Config {
             bail!("SENTRY_TRACES_SAMPLE_RATE must be between 0.0 and 1.0");
         }
 
-        let sync_interval_secs: u64 = parse_or(&var, "SYNC_INTERVAL_SECS", 900)?;
+        let sync_interval_secs: u64 = parse_or(&var, "SYNC_INTERVAL_SECS", 3600)?;
         if sync_interval_secs == 0 {
             bail!("SYNC_INTERVAL_SECS must be greater than 0");
         }
@@ -146,7 +146,7 @@ mod tests {
         assert!(c.is_development);
         assert_eq!(c.jwt_secret, DEV_JWT_SECRET);
         assert_eq!(c.allowed_origins, None);
-        assert_eq!(c.sync_interval_secs, 900);
+        assert_eq!(c.sync_interval_secs, 3600);
         assert_eq!(c.sync_cooldown_secs, 60);
         assert_eq!(c.port, 3000);
         assert_eq!(c.sentry_traces_sample_rate, 0.1);

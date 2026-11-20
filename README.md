@@ -25,8 +25,8 @@ cp .env.example .env.development
 | `APP_ENV`                   | no       | Defaults to `development`. Anything else (`production`, `staging`, ...) gets strict settings |
 | `ALLOWED_ORIGINS`           | no       | Comma-separated CORS origins outside development (development allows any) |
 | `PORT`                      | no       | Defaults to `3000` |
-| `SYNC_INTERVAL_SECS`        | no       | Worker sync interval; default `900` (15 min). LibreLink only returns ~12 h of history, so keep it well below that |
-| `SYNC_COOLDOWN_SECS`        | no       | Minimum time between sync attempts per credential (manual or worker); default `60` |
+| `SYNC_INTERVAL_SECS`        | no       | Background sync interval; default `3600` (1 hour). LibreLink only returns ~12 h of history, so keep it well below that |
+| `SYNC_COOLDOWN_SECS`        | no       | Minimum time between sync attempts per credential (manual or scheduled); default `60` |
 | `RUST_LOG`                  | no       | Defaults to `info` |
 
 Invalid values (e.g. `PORT=abc`) stop startup with an error instead of silently using a default.
@@ -42,7 +42,7 @@ cargo run
 - Health: `http://127.0.0.1:3000/health`
 - Swagger: `http://127.0.0.1:3000/swagger-ui/`
 
-`cargo run` starts the HTTP API only. Background sync needs a worker process (see below).
+`cargo run` starts the HTTP API and the background sync scheduler.
 
 ## CGM credentials (put them in the database)
 
@@ -104,22 +104,16 @@ Authorization: Bearer <token>
 
 
 
-## Background sync (worker)
+## Background sync
 
-The scheduler loads all active credentials, syncs once on start, then every `SYNC_INTERVAL_SECS`. LibreLink logins are reused between syncs. On SIGTERM/Ctrl-C it finishes the current run and exits; the API likewise finishes in-flight requests.
+The API process also runs the sync scheduler: it loads all active credentials, syncs once on start, then every `SYNC_INTERVAL_SECS`. LibreLink logins are reused between syncs. Running several instances is safe, because every sync is first claimed in the database (see `SYNC_COOLDOWN_SECS`). On SIGTERM/Ctrl-C the server finishes in-flight requests and the current sync run, then exits.
 
-```bash
-FLY_PROCESS_GROUP=worker cargo run
-```
-
-On Fly, the `worker` process group runs this automatically. Pushing to `main`/`master` deploys via GitHub Actions. Manual deploy:
+On Fly, keep `min_machines_running = 1`: if the machine auto-stops, nothing syncs. Pushing to `main`/`master` deploys via GitHub Actions. Manual deploy:
 
 ```bash
 ./deploy.sh
 # or: fly deploy --build-arg GIT_REV_SHORT=$(git rev-parse --short=7 HEAD)
 ```
-
-
 
 ## Auth & other endpoints
 
@@ -156,7 +150,7 @@ Everything platform-specific sits behind one `match` in `src/services/sync_servi
 
 1. Add a variant to `CgmType` (`src/models/cgm_credential.rs`) with its canonical name.
 2. Add a client in `src/services/` returning `Vec<NewGlucoseReading>` in **mg/dL**, with trends mapped onto the existing strings (`singleDown` … `notComputable`).
-3. Map its errors onto `CgmCredentialsRejected` / `CgmAccountLocked` / `ApiError` so the worker alerts only on real failures.
+3. Map its errors onto `CgmCredentialsRejected` / `CgmAccountLocked` / `ApiError` so the scheduler alerts only on real failures.
 4. Add the arm in `fetch_readings`; the compiler flags it if missed.
 
 `prepare_readings` then drops implausible values and assigns the user, and `insert_many` dedupes and upserts in chunks, for every platform.
