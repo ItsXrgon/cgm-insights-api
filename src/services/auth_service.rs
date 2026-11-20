@@ -10,8 +10,9 @@ use std::env;
 
 use crate::dto::{AuthResponse, LoginRequest, SignupRequest, UserResponse};
 use crate::error::AppError;
-use crate::models::{NewCgmCredential, NewUser, User};
+use crate::models::{NewUser, User};
 use crate::repositories::{cgm_repository, user_repository};
+use crate::services::cgm_service;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
@@ -91,7 +92,6 @@ const USERNAME_MIN_LEN: usize = 3;
 const USERNAME_MAX_LEN: usize = 64;
 const PASSWORD_MIN_LEN: usize = 8;
 const PASSWORD_MAX_LEN: usize = 256;
-const CGM_CREDENTIAL_MAX_LEN: usize = 512;
 
 fn validate_username(s: &str) -> Result<(), AppError> {
     let len = s.chars().count();
@@ -127,65 +127,44 @@ fn validate_password(s: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-fn validate_cgm_credentials(username: &str, password: &str) -> Result<(), AppError> {
-    if username.chars().count() > CGM_CREDENTIAL_MAX_LEN {
-        return Err(AppError::ValidationError(
-            "CGM username is too long".to_string(),
-        ));
-    }
-    if password.chars().count() > CGM_CREDENTIAL_MAX_LEN {
-        return Err(AppError::ValidationError(
-            "CGM password is too long".to_string(),
-        ));
-    }
-    Ok(())
-}
-
 pub async fn signup(
     pool: &DbPool,
     request: SignupRequest,
 ) -> Result<AuthResponse, AppError> {
     validate_username(&request.username)?;
     validate_password(&request.password)?;
-    validate_cgm_credentials(&request.cgm_username, &request.cgm_password)?;
+    // Validate the CGM credential before creating the user so bad input leaves nothing behind.
+    // user_id is filled in once the user row exists.
+    let mut new_cgm = cgm_service::build_new_credential(
+        0,
+        &request.cgm_type,
+        request.cgm_username,
+        request.cgm_password,
+        request.cgm_region,
+        true,
+    )?;
 
-    // Check if user already exists
     if user_repository::find_by_username(pool, &request.username)
         .await?
         .is_some()
     {
-        return Err(AppError::AuthError("Username already exists".to_string()));
+        return Err(AppError::Conflict("Username already exists".to_string()));
     }
 
     let password_hash = hash_password(&request.password)?;
-    let new_user = NewUser {
-        username: request.username,
-        password_hash,
-    };
+    let user = user_repository::insert(
+        pool,
+        NewUser {
+            username: request.username,
+            password_hash,
+        },
+    )
+    .await?;
 
-    let user = user_repository::insert(pool, new_user).await?;
-
-    // Create CGM credential for the user
-    let new_cgm = NewCgmCredential {
-        user_id: user.id,
-        cgm_type: request.cgm_type,
-        username: request.cgm_username,
-        password: request.cgm_password,
-        region: request.cgm_region.map(|r| r.to_lowercase()),
-        is_active: true,
-    };
+    new_cgm.user_id = user.id;
     cgm_repository::insert(pool, new_cgm).await?;
 
-    let token = generate_token(&user)?;
-
-    Ok(AuthResponse {
-        token,
-        user: UserResponse {
-            id: user.id,
-            username: user.username,
-            created_at: user.created_at.to_rfc3339(),
-        },
-    })
+    auth_response(user)
 }
 
 pub async fn login(pool: &DbPool, request: LoginRequest) -> Result<AuthResponse, AppError> {
@@ -202,8 +181,11 @@ pub async fn login(pool: &DbPool, request: LoginRequest) -> Result<AuthResponse,
         ));
     }
 
-    let token = generate_token(&user)?;
+    auth_response(user)
+}
 
+fn auth_response(user: User) -> Result<AuthResponse, AppError> {
+    let token = generate_token(&user)?;
     Ok(AuthResponse {
         token,
         user: UserResponse {
@@ -212,4 +194,94 @@ pub async fn login(pool: &DbPool, request: LoginRequest) -> Result<AuthResponse,
             created_at: user.created_at.to_rfc3339(),
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user(id: i32) -> User {
+        User {
+            id,
+            username: "alice".into(),
+            password_hash: String::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn password_hash_round_trip() {
+        let hash = hash_password("correct horse").unwrap();
+        assert_ne!(hash, "correct horse");
+        assert!(verify_password("correct horse", &hash).unwrap());
+        assert!(!verify_password("wrong horse", &hash).unwrap());
+    }
+
+    #[test]
+    fn malformed_hash_is_an_error_not_a_match() {
+        assert!(verify_password("x", "not-a-phc-string").is_err());
+    }
+
+    #[test]
+    fn token_round_trip() {
+        let token = generate_token(&user(42)).unwrap();
+        let claims = validate_token(&token).unwrap();
+        assert_eq!(claims.sub, 42);
+        assert_eq!(claims.username, "alice");
+        assert!(claims.exp > Utc::now().timestamp());
+    }
+
+    #[test]
+    fn rejects_tampered_and_garbage_tokens() {
+        let token = generate_token(&user(1)).unwrap();
+        // Flip a character in the signature segment.
+        let (head, sig) = token.rsplit_once('.').unwrap();
+        let mut sig: Vec<char> = sig.chars().collect();
+        sig[0] = if sig[0] == 'A' { 'B' } else { 'A' };
+        let tampered = format!("{}.{}", head, sig.into_iter().collect::<String>());
+        assert!(matches!(validate_token(&tampered), Err(AppError::AuthError(_))));
+        assert!(validate_token("garbage").is_err());
+    }
+
+    #[test]
+    fn rejects_expired_and_foreign_tokens() {
+        let expired = Claims {
+            sub: 1,
+            username: "alice".into(),
+            exp: (Utc::now() - Duration::hours(1)).timestamp(),
+        };
+        let secret = jwt_secret().unwrap();
+        let token = encode(
+            &Header::default(),
+            &expired,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
+        .unwrap();
+        assert!(validate_token(&token).is_err());
+
+        let foreign = encode(
+            &Header::default(),
+            &Claims {
+                exp: (Utc::now() + Duration::hours(1)).timestamp(),
+                ..expired
+            },
+            &EncodingKey::from_secret(b"some-other-secret"),
+        )
+        .unwrap();
+        assert!(validate_token(&foreign).is_err());
+    }
+
+    #[test]
+    fn username_and_password_length_bounds() {
+        assert!(validate_username("ab").is_err());
+        assert!(validate_username("abc").is_ok());
+        assert!(validate_username(&"a".repeat(USERNAME_MAX_LEN)).is_ok());
+        assert!(validate_username(&"a".repeat(USERNAME_MAX_LEN + 1)).is_err());
+        assert!(validate_password("1234567").is_err());
+        assert!(validate_password("12345678").is_ok());
+        assert!(validate_password(&"p".repeat(PASSWORD_MAX_LEN + 1)).is_err());
+        // counted in chars, not bytes
+        assert!(validate_username("äöü").is_ok());
+    }
 }

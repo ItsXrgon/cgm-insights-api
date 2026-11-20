@@ -1,12 +1,56 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use std::fmt;
+use std::str::FromStr;
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "cgm_type", rename_all = "lowercase")]
+/// Supported CGM platforms.
+///
+/// Stored in `cgm_credentials.cgm_type` as the canonical name from [`CgmType::as_str`].
+/// Parsing is case-insensitive so rows written before validation existed
+/// (e.g. `"freestyle"`) still resolve. Adding a platform means adding a variant here;
+/// the compiler then points at every place that must handle it (see `SyncService`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CgmType {
     FreeStyle,
     Dexcom,
+}
+
+impl CgmType {
+    pub const ALL: &'static [CgmType] = &[CgmType::FreeStyle, CgmType::Dexcom];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CgmType::FreeStyle => "FreeStyle",
+            CgmType::Dexcom => "Dexcom",
+        }
+    }
+}
+
+impl fmt::Display for CgmType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for CgmType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        CgmType::ALL
+            .iter()
+            .copied()
+            .find(|t| t.as_str().eq_ignore_ascii_case(s))
+            .ok_or_else(|| {
+                let supported: Vec<&str> = CgmType::ALL.iter().map(|t| t.as_str()).collect();
+                format!(
+                    "Unsupported CGM type '{}'. Supported: {}",
+                    s,
+                    supported.join(", ")
+                )
+            })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -30,4 +74,33 @@ pub struct NewCgmCredential {
     pub password: String,
     pub region: Option<String>,
     pub is_active: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_case_insensitively_and_trims() {
+        assert_eq!("FreeStyle".parse::<CgmType>(), Ok(CgmType::FreeStyle));
+        assert_eq!("freestyle".parse::<CgmType>(), Ok(CgmType::FreeStyle));
+        assert_eq!("  FREESTYLE ".parse::<CgmType>(), Ok(CgmType::FreeStyle));
+        assert_eq!("dexcom".parse::<CgmType>(), Ok(CgmType::Dexcom));
+    }
+
+    #[test]
+    fn rejects_unknown_type_listing_supported() {
+        let err = "medtronic".parse::<CgmType>().unwrap_err();
+        assert!(err.contains("medtronic"));
+        assert!(err.contains("FreeStyle"));
+        assert!("".parse::<CgmType>().is_err());
+    }
+
+    #[test]
+    fn canonical_name_round_trips() {
+        for t in CgmType::ALL {
+            assert_eq!(t.as_str().parse::<CgmType>(), Ok(*t));
+            assert_eq!(t.to_string(), t.as_str());
+        }
+    }
 }

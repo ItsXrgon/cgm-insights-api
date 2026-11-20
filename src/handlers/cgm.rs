@@ -141,23 +141,13 @@ pub async fn delete_credential(
     Extension(claims): Extension<Claims>,
     Path(id): Path<i32>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    let deleted = cgm_service::delete_credential(&state.db, claims.sub, id).await?;
+    cgm_service::delete_credential(&state.db, claims.sub, id).await?;
 
-    if deleted {
-        Ok((
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "success": true,
-                "message": "Credential deleted successfully"
-            })),
-        ))
-    } else {
-        Ok((
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "success": false,
-                "message": "Credential not found"
-            })),
-        ))
-    }
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "message": "Credential deleted successfully"
+        })),
+    ))
 }

@@ -107,7 +107,7 @@ pub async fn find_by_id(pool: &DbPool, id: i32) -> Result<Option<CgmCredential>,
 }
 
 /// Update a CGM credential
-#[instrument(skip(pool))]
+#[instrument(skip(pool, username, password))]
 pub async fn update(
     pool: &DbPool,
     id: i32,
@@ -143,33 +143,53 @@ pub async fn update(
     Ok(record)
 }
 
-/// Deactivate all credentials for a user
+/// Make `id` the user's only active credential, in a single statement so concurrent
+/// requests can never leave two active rows. Returns `None` if the user doesn't own `id`.
 #[instrument(skip(pool))]
-pub async fn deactivate_all_for_user(pool: &DbPool, user_id: i32) -> Result<(), AppError> {
-    sqlx::query(
+pub async fn activate(
+    pool: &DbPool,
+    user_id: i32,
+    id: i32,
+) -> Result<Option<CgmCredential>, AppError> {
+    let record = sqlx::query_as::<_, CgmCredential>(
         r#"
-        UPDATE cgm_credentials
-        SET is_active = FALSE
-        WHERE user_id = $1
+        WITH target AS (
+            SELECT id FROM cgm_credentials WHERE id = $2 AND user_id = $1
+        ),
+        updated AS (
+            -- Touch every row of the user (not just currently-active ones) so a concurrent
+            -- activation re-checks each locked row and the last writer wins cleanly.
+            UPDATE cgm_credentials c
+            SET is_active = (c.id = $2),
+                updated_at = CASE WHEN c.is_active = (c.id = $2) THEN c.updated_at ELSE NOW() END
+            WHERE c.user_id = $1
+              AND EXISTS (SELECT 1 FROM target)
+            RETURNING c.id, c.user_id, c.cgm_type, c.username, c.password, c.region, c.is_active, c.created_at, c.updated_at
+        )
+        SELECT id, user_id, cgm_type, username, password, region, is_active, created_at, updated_at
+        FROM updated
+        WHERE id = $2
         "#,
     )
     .bind(user_id)
-    .execute(pool)
+    .bind(id)
+    .fetch_optional(pool)
     .await?;
 
-    Ok(())
+    Ok(record)
 }
 
-/// Delete a CGM credential
+/// Delete a CGM credential owned by `user_id`
 #[instrument(skip(pool))]
-pub async fn delete(pool: &DbPool, id: i32) -> Result<bool, AppError> {
+pub async fn delete(pool: &DbPool, user_id: i32, id: i32) -> Result<bool, AppError> {
     let result = sqlx::query(
         r#"
         DELETE FROM cgm_credentials
-        WHERE id = $1
+        WHERE id = $1 AND user_id = $2
         "#,
     )
     .bind(id)
+    .bind(user_id)
     .execute(pool)
     .await?;
 
