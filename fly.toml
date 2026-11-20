@@ -1,6 +1,9 @@
 # Fly.io app configuration
 app = "cgm-insights-api"
 primary_region = "cdg"
+# Time to finish in-flight requests and a running sync after SIGTERM
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
 
 [build]
 
@@ -9,18 +12,13 @@ primary_region = "cdg"
   APP_ENV = "production"
   RUST_LOG = "info"
 
-[processes]
-  # Web API 
-  app = "/app/cgm-insights-api"
-  # Scheduled jobs
-  worker = "/app/cgm-insights-api"
-
 [http_service]
   internal_port = 3000
   force_https = true
-  processes = ["app"]
   auto_stop_machines = "stop"
   auto_start_machines = true
+  # Keep at least 1: the CGM sync scheduler runs in this process, so a stopped
+  # machine means no syncs (and LibreLink only keeps ~12 h of history).
   min_machines_running = 1
 
   [http_service.concurrency]
