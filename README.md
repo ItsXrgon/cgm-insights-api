@@ -61,7 +61,7 @@ Content-Type: application/json
 }
 ```
 
-`cgmType` is `FreeStyle` (or `Dexcom`, not wired yet). `cgmRegion` examples: `eu`, `us`.
+`cgmType` is `FreeStyle` (or `Dexcom`, not wired yet); matching is case-insensitive and unknown types are rejected with `400`. `cgmRegion` examples: `eu`, `us` (defaults to `eu` for FreeStyle).
 
 **Option B — after login**, manage credentials under `/api/cgm` (Bearer token required):
 
@@ -92,10 +92,6 @@ Authorization: Bearer <token>
 ```
 
 
-
-### Optional env override
-
-If `CGM_USERNAME` / `CGM_PASSWORD` / `CGM_REGION` are set, they override the stored values when talking to LibreLink. You still need an active row in `cgm_credentials` so the worker knows which user to attach readings to.
 
 ## Background sync (worker)
 
@@ -128,6 +124,39 @@ On Fly, the `worker` process group runs this automatically. Pushing to `main`/`m
 
 
 
+
+## Errors
+
+All errors return `{ "error": "<message>" }`.
+
+| Status | Meaning |
+| ------ | ------- |
+| `400`  | Invalid input |
+| `401`  | Missing/invalid token, or wrong username/password |
+| `404`  | Resource not found (or owned by another user) |
+| `409`  | Username already exists |
+| `422`  | CGM platform rejected the stored credentials (wrong password, region, terms to accept in the vendor app) |
+| `429`  | CGM account temporarily locked by the vendor, or rate limit hit |
+| `502`  | CGM platform unreachable or returned something unexpected |
+
+## Adding a CGM platform
+
+Everything platform-specific sits behind one `match` in `src/services/sync_service.rs`:
+
+1. Add a variant to `CgmType` (`src/models/cgm_credential.rs`) with its canonical name.
+2. Add a client in `src/services/` returning `Vec<NewGlucoseReading>` in **mg/dL**, with trends mapped onto the existing strings (`singleDown` … `notComputable`).
+3. Map its errors onto `CgmCredentialsRejected` / `CgmAccountLocked` / `ApiError` so the worker alerts only on real failures.
+4. Add the arm in `fetch_readings`; the compiler flags it if missed.
+
+`prepare_readings` then drops implausible values and assigns the user, and `insert_many` dedupes and upserts in chunks, for every platform.
+
+## Tests
+
+```bash
+cargo test
+```
+
+Unit tests cover validation, credential normalization, error mapping, reading mapping and dedupe; `tests/http.rs` exercises routing, auth, CORS and validation without a database. CI runs them before every deploy.
 
 ## Sentry (optional)
 
