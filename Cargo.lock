@@ -1646,9 +1646,9 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "libre_link_up_api_client"
-version = "0.3.3"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99560593e29ab6009fb2984ecdc39c41463b865b2a7f2e741f5f56b3be6b7e6c"
+checksum = "34898ae9b28a2808b1b17cbf5f3fcb3c5e5952cd2be0b53bc9bf8b99053599fe"
 dependencies = [
  "chrono",
  "reqwest 0.13.2",

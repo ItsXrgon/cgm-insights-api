@@ -9,9 +9,13 @@ pub struct LibreLinkClient {
 
 impl LibreLinkClient {
     /// `region: None` lets the crate use its default region.
-    pub fn new(username: String, password: String, region: Option<String>) -> Result<Self, AppError> {
-        let inner =
-            LibreLinkUpClient::simple(username, password, region).map_err(libre_error_to_app)?;
+    pub fn new(
+        username: String,
+        password: String,
+        region: Option<String>,
+    ) -> Result<Self, AppError> {
+        let inner = LibreLinkUpClient::simple(username, password, region.as_deref())
+            .map_err(libre_error_to_app)?;
         Ok(Self { inner })
     }
 
@@ -29,7 +33,7 @@ impl LibreLinkClient {
 fn libre_cgm_to_reading(d: &LibreCgmData) -> NewGlucoseReading {
     NewGlucoseReading {
         user_id: None,
-        value_mg_dl: d.value,
+        value_mg_dl: d.value_mg_dl,
         timestamp: d.timestamp,
         is_high: d.is_high,
         is_low: d.is_low,
@@ -59,13 +63,11 @@ fn libre_error_to_app(e: LibreLinkUpError) -> AppError {
     match e {
         LibreLinkUpError::AccountLocked(_) => AppError::CgmAccountLocked(msg),
         LibreLinkUpError::BadCredentials
-        | LibreLinkUpError::AuthFailed(_)
+        | LibreLinkUpError::InvalidConfig(_)
         | LibreLinkUpError::AdditionalActionRequired(_)
-        | LibreLinkUpError::RegionNotFound(..)
         | LibreLinkUpError::NoConnections
         | LibreLinkUpError::ConnectionNotFound(_) => AppError::CgmCredentialsRejected(msg),
         LibreLinkUpError::Http(_)
-        | LibreLinkUpError::SerializationError(_)
         | LibreLinkUpError::InvalidResponse(_)
         | LibreLinkUpError::ConnectionFunctionFailed => AppError::ApiError(msg),
     }
@@ -80,7 +82,7 @@ mod tests {
     fn maps_cgm_data_to_reading() {
         let ts = Utc.with_ymd_and_hms(2026, 1, 2, 3, 4, 5).unwrap();
         let r = libre_cgm_to_reading(&LibreCgmData {
-            value: 123.0,
+            value_mg_dl: 123.0,
             is_high: true,
             is_low: false,
             trend: TrendType::FortyFiveUp,
@@ -117,11 +119,13 @@ mod tests {
         for e in [
             LibreLinkUpError::BadCredentials,
             LibreLinkUpError::NoConnections,
-            LibreLinkUpError::AuthFailed("x".into()),
+            LibreLinkUpError::InvalidConfig("x".into()),
             LibreLinkUpError::AdditionalActionRequired("tou".into()),
-            LibreLinkUpError::RegionNotFound("zz".into(), "eu, us".into()),
         ] {
-            assert!(matches!(libre_error_to_app(e), AppError::CgmCredentialsRejected(_)));
+            assert!(matches!(
+                libre_error_to_app(e),
+                AppError::CgmCredentialsRejected(_)
+            ));
         }
         assert!(matches!(
             libre_error_to_app(LibreLinkUpError::InvalidResponse("bad".into())),
