@@ -11,7 +11,13 @@ pub fn cors_layer() -> CorsLayer {
         == "development";
 
     let mut cors = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+        ])
         .allow_headers([
             header::CONTENT_TYPE,
             header::AUTHORIZATION,
