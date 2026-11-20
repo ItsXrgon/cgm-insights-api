@@ -108,7 +108,7 @@ Authorization: Bearer <token>
 
 The API process also runs the sync scheduler: it loads all active credentials, syncs once on start, then every `SYNC_INTERVAL_SECS`. LibreLink logins are reused between syncs. Running several instances is safe, because every sync is first claimed in the database (see `SYNC_COOLDOWN_SECS`). On SIGTERM/Ctrl-C the server finishes in-flight requests and the current sync run, then exits.
 
-On Fly, keep `min_machines_running = 1`: if the machine auto-stops, nothing syncs. Pushing to `main`/`master` deploys via GitHub Actions. Manual deploy:
+On Fly, `fly.toml` turns auto-stop off and one machine is enough (`fly scale count 1`): if the machine stops, nothing syncs. Pushing to `main`/`master` deploys via GitHub Actions. Manual deploy:
 
 ```bash
 ./deploy.sh
